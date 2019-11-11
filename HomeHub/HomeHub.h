@@ -21,17 +21,11 @@
 #define HomeHub_DEBUG
 
 // Debug output destination can be defined externally with AC_DEBUG_PORT
-#ifndef HomeHub_DEBUG_PORT
 #define HomeHub_DEBUG_PORT Serial
-#endif
+#define HomeHub_DEBUG_PORT_BAUD 9600
 
-#ifndef HomeHub_DATA_PORT
-#define HomeHub_DATA_PORT Serial
-#endif
-
-#ifndef HomeHub_DATA_PORT_BAUD
-#define HomeHub_DATA_PORT_BAUD 9600
-#endif
+#define HomeHub_SLAVE_DATA_PORT Serial
+#define HomeHub_SLAVE_DATA_PORT_BAUD 9600
 
 #ifdef HomeHub_DEBUG
 #define HomeHub_DEBUG_PRINT(...) do {HomeHub_DEBUG_PORT.print("[HomeHub] : "); HomeHub_DEBUG_PORT.printf( __VA_ARGS__ );HomeHub_DEBUG_PORT.println("");} while (0)
@@ -39,25 +33,15 @@
 #define HomeHub_DEBUG_PRINT(...)
 #endif
 
+#define ROM_ADDRESS 0x57
+
 //	The #include of Arduino.h gives this library access to the standard
 //	Arduino types and constants (HIGH, digitalWrite, etc.). It's 
 //	unneccesary for sketches but required for libraries as they're not
 //	.ino (Arduino) files.
 #include "Arduino.h"
-#include "WiFiManager.h"
-//#include "EEPROM.h"
 
-#if defined(ESP8266)
-#include <ESP8266WiFi.h>
-#include <pgmspace.h>
-#elif defined(ESP32)
-#include <WiFi.h>
-#include <pgmspace.h>
-#else
-#error Platform not supported
-#endif
-
-const char HTTP_EN[] PROGMEM = "</div></body></html>";
+//const char HTTP_EN[] PROGMEM = "</div></body></html>";
 
 extern "C" {
 #include "user_interface.h"
@@ -77,11 +61,10 @@ class HomeHub{
 		//	same name as the class and is used to create an instance of the class.
 		//	It has no return type and is only used once per instance.	
 		HomeHub();
-
+		//Public functions are defined here
 		void asynctasks();
-
-		//	Below are the functions of the class. They are the functions available
-		//	in the library for a user to call.
+		void rom_write(unsigned int eeaddress, byte data);
+		byte rom_read(unsigned int eeaddress);
 
 	private:                  
 		
@@ -90,14 +73,12 @@ class HomeHub{
 		//	is private.		
 
 		//Private Variables
-		int _DATA_PORT_counter = 0;
+		int _SLAVE_DATA_PORT_counter = 0;
 		bool _initiate_AP = false;
-		String _DATA_PORT_command = "";
+		String _SLAVE_DATA_PORT_command = "";
 
 		//Private Functions 
-		void DATA_PORT_getcommand();
-		void start_hotspot();
-		void wifi_connect();
+		void slave_handler();
 };
 
 //	The end wrapping of the #ifndef Include Guard

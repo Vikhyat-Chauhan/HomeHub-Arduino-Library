@@ -13,6 +13,7 @@
 HomeHub homehub;
 
 void setup(){
+    homehub.initiate_wifi_setup();
 }
 
 void loop(){

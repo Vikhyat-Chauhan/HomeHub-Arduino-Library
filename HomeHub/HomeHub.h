@@ -41,6 +41,9 @@
 //	.ino (Arduino) files.
 #include "Arduino.h"
 
+#include <ESP8266mDNS.h>
+#include <WiFiClient.h>
+
 //const char HTTP_EN[] PROGMEM = "</div></body></html>";
 
 extern "C" {
@@ -65,20 +68,45 @@ class HomeHub{
 		void asynctasks();
 		void rom_write(unsigned int eeaddress, byte data);
 		byte rom_read(unsigned int eeaddress);
+        char initiate_wifi_setup();
+        char end_wifi_setup();
+        char saved_wifi_connect();
 
-	private:                  
-		
+	private:
+        //std::unique_ptr<MDNSResponder> mdns;
+        //std::unique_ptr<WiFiServer> server;
+		MDNSResponder* mdns;
+        WiFiServer* server;
 		//	When dealing with private variables, it is common convention to place
 		//	an underscore before the variable name to let a user know the variable
 		//	is private.		
 
 		//Private Variables
+        String _ssid_string = "TNM" + String(ESP.getChipId());
+        String _wifi_data;
+        String _esid = "";
+        String _epass = "";
+        bool _saved_wifi_present_flag = false;
+
 		int _SLAVE_DATA_PORT_counter = 0;
 		bool _initiate_AP = false;
 		String _SLAVE_DATA_PORT_command = "";
+		String _slave_output_buffer = "";
+    
+        // DNS server
+        const byte    DNS_PORT = 53;
 
 		//Private Functions 
 		void slave_handler();
+        void start_server();
+        char stop_server();
+        char initiate_ap();
+        char end_ap();
+        int wifi_setup_webhandler(String _wifi_data);
+        int normal_webhandler();
+        char retrieve_wifi_data();
+        char test_wifi();
+        String scan_networks();
 };
 
 //	The end wrapping of the #ifndef Include Guard

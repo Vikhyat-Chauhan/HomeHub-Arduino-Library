@@ -1,8 +1,9 @@
 /*
- * myFirstLibrary.cpp - An introduction to library setup
- * Created by Christian @ Core Electronics on 1/06/18
- * Revision #5 - See readMe
- */
+* HomeHub.cpp - An TNM Home Automation Library
+* Created by Vikhyat Chauhan @ TNM on 9/11/19
+* www.thenextmove.in
+* Revision #6 - See readMe
+*/
 
 //	This will include the Header File so that the Source File has access
 //	to the function definitions in the myFirstLibrary library.
@@ -34,12 +35,7 @@ HomeHub::HomeHub(){
 	HomeHub_DEBUG_PORT.begin(HomeHub_DEBUG_PORT_BAUD);
 	HomeHub_SLAVE_DATA_PORT.begin(HomeHub_SLAVE_DATA_PORT_BAUD);
 	Wire.begin();
-    EEPROM.begin(512);
     retrieve_wifi_data();
-	//rom_write(2, 2);
-	//EEPROM.begin(512);
-	//if (EEPROM.read(300) == 0) { WiFiManager wifiManager;wifiManager.startConfigPortal();HomeHub_DEBUG_PRINT("Starting AP"); }
-	//wifi_connect();
 	HomeHub_DEBUG_PRINT("STARTED");
 }
 
@@ -171,7 +167,9 @@ int HomeHub::wifi_setup_webhandler(String wifi_data)
       else if ( req.startsWith("/a?ssid=") ) {
         // /a?ssid=blahhhh&pass=poooo
         Serial.println("clearing eeprom");
-        for (int i = 0; i < 96; ++i) { EEPROM.write(i, 0); }
+        for (int i = 0; i < 96; ++i) {
+            rom_write(i, 0); //EEPROM.write(i, 0);
+        }
         String qsid;
         qsid = req.substring(8,req.indexOf('&'));
         Serial.println(qsid);
@@ -184,18 +182,18 @@ int HomeHub::wifi_setup_webhandler(String wifi_data)
         Serial.println("writing eeprom ssid:");
         for (int i = 0; i < qsid.length(); ++i)
           {
-            EEPROM.write(i, qsid[i]);
+            rom_write(i, qsid[i]); //EEPROM.write(i, qsid[i]);
             Serial.print("Wrote: ");
             Serial.println(qsid[i]);
           }
         Serial.println("writing eeprom pass:");
         for (int i = 0; i < qpass.length(); ++i)
           {
-            EEPROM.write(32+i, qpass[i]);
+            rom_write(32+i, qpass[i]); //EEPROM.write(32+i, qpass[i]);
             Serial.print("Wrote: ");
             Serial.println(qpass[i]);
           }
-        EEPROM.commit();
+        //EEPROM.commit();
         s = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<!DOCTYPE HTML>\r\n<html>Hello from ESP8266 ";
         s += "Found ";
         s += req;
@@ -262,8 +260,10 @@ int HomeHub::normal_webhandler()
     s += "</html>\r\n\r\n";
     Serial.println("Sending 200");
     Serial.println("clearing eeprom");
-    for (int i = 0; i < 96; ++i) { EEPROM.write(i, 0); }
-    EEPROM.commit();
+    for (int i = 0; i < 96; ++i) {
+        // EEPROM.write(i, 0);
+    }
+    //EEPROM.commit();
   }
   else
   {
@@ -280,13 +280,13 @@ char HomeHub::retrieve_wifi_data(){
   _epass = "";
   for (int i = 0;i < 32;++i)
     {
-      _esid += char(EEPROM.read(i));
+      _esid += char(rom_read(i)); //_esid += char(EEPROM.read(i));
     }
   Serial.print("SSID:");Serial.println(_esid);
   _epass = "";
   for(int i = 32;i < 96;++i)
     {
-      _epass += char(EEPROM.read(i));
+      _epass += char(rom_read(i)); //_epass += char(EEPROM.read(i));
     }
   Serial.print("PASS:");Serial.println(_epass);
   if(_esid.length() > 1){
@@ -415,7 +415,7 @@ char HomeHub::saved_wifi_connect(){
 char HomeHub::initiate_wifi_setup(){
   _wifi_data = scan_networks();
   initiate_ap();
-  start_server();
+    start_server();
 }
 
 char HomeHub::end_wifi_setup(){

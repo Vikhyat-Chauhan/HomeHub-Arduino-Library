@@ -2,7 +2,7 @@
  * HomeHub.h - An TNM Home Automation Library
  * Created by Vikhyat Chauhan @ TNM on 9/11/19
  * www.thenextmove.in
- * Revision #5 - See readMe 
+ * Revision #6 - See readMe
  */
 
 //	The #ifndef statement checks to see if the HomeHub.h

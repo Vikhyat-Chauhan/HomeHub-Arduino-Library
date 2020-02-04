@@ -2,7 +2,7 @@
  * HomeHub.h - An TNM Home Automation Library
  * Created by Vikhyat Chauhan @ TNM on 9/11/19
  * www.thenextmove.in
- * Revision #6 - See readMe
+ * Revision #7 - See readMe
  */
 
 //	The #ifndef statement checks to see if the HomeHub.h
@@ -43,6 +43,7 @@
 
 #include <ESP8266mDNS.h>
 #include <WiFiClient.h>
+#include <Ticker.h> 
 
 //const char HTTP_EN[] PROGMEM = "</div></body></html>";
 
@@ -64,6 +65,8 @@ class HomeHub{
 		//	same name as the class and is used to create an instance of the class.
 		//	It has no return type and is only used once per instance.	
 		HomeHub();
+        typedef void (*callback_with_arg_t)(void*);
+        typedef std::function<void(void)> callback_function_t;
 		//Public functions are defined here
 		void asynctasks();
 		void rom_write(unsigned int eeaddress, byte data);
@@ -71,22 +74,43 @@ class HomeHub{
         char initiate_wifi_setup();
         char end_wifi_setup();
         char saved_wifi_connect();
+        void saved_wifi_dump();
+    void save_wifi_data(String ssid,String password);
 
 	private:
         //std::unique_ptr<MDNSResponder> mdns;
         //std::unique_ptr<WiFiServer> server;
 		MDNSResponder* mdns;
         WiFiServer* server;
+        Ticker* ticker;
 		//	When dealing with private variables, it is common convention to place
 		//	an underscore before the variable name to let a user know the variable
 		//	is private.		
 
 		//Private Variables
         String _ssid_string = "TNM" + String(ESP.getChipId());
-        String _wifi_data;
+        String _wifi_data = "";
         String _esid = "";
         String _epass = "";
         bool _saved_wifi_present_flag = false;
+    
+        //async Task control variables
+    bool wifi_setup_webhandler_flag = false;
+    
+        //Data Transmission Values
+    String error = "000";
+    String LastCommand = "";
+    String Device_Id_As_Subscription_Topic = (String)ESP.getChipId()+"ESP";
+    String Device_Id_As_Publish_Topic = (String)ESP.getChipId()+"/{2S}";
+    char Device_Id_In_Char_As_Subscription_Topic[12];
+    char Device_Id_In_Char_As_Publish_Topic[22];
+
+    //Update these with values suitable for your network.
+    const char* mqtt_server = "m12.cloudmqtt.com";
+    const char* mqtt_clientname;
+    const char* mqtt_serverid = "wbynzcri";
+    const char* mqtt_serverpass = "uOIqIxMgf3Dl";
+    const int mqtt_port = 12233;
 
 		int _SLAVE_DATA_PORT_counter = 0;
 		bool _initiate_AP = false;
@@ -102,7 +126,7 @@ class HomeHub{
         char stop_server();
         char initiate_ap();
         char end_ap();
-        int wifi_setup_webhandler(String _wifi_data);
+        int wifi_setup_webhandler();
         int normal_webhandler();
         char retrieve_wifi_data();
         char test_wifi();

@@ -2,52 +2,60 @@
 * HomeHub.cpp - An TNM Home Automation Library
 * Created by Vikhyat Chauhan @ TNM on 9/11/19
 * www.thenextmove.in
-* Revision #7 - See readMe
+* Revision #8 - See readMe
 */
 
-//	This will include the Header File so that the Source File has access
-//	to the function definitions in the myFirstLibrary library.
-#include "HomeHub.h" 
+#include "HomeHub.h"
+#include <Arduino.h>
 
-//	The #include of Arduino.h gives this library access to the standard
-//	Arduino types and constants (HIGH, digitalWrite, etc.). It's 
-//	unneccesary for sketches but required for libraries as they're not
-//	.ino (Arduino) files. 
-#include "Arduino.h"
-#include <Wire.h>
+WiFiClient _Client;
+PubSubClient mqttclient(_Client);
 
-#if defined(ESP8266)
-#include <ESP8266WiFi.h>
-#include <pgmspace.h>
-#elif defined(ESP32)
-#include <WiFi.h>
-#include <pgmspace.h>
-#else
-#error Platform not supported
-#endif
-
-//	This is where the constructor Source Code appears. The '::' indicates that
-//	it is part of the myFirstLibrary class and should be used for all constructors
-//	and functions that are part of a class.
 HomeHub::HomeHub(){
-    	//	The arguments of the constructor are then saved into the private variables.
-	HomeHub_DEBUG_PORT.begin(HomeHub_DEBUG_PORT_BAUD);
+    //Initilize Serial Lines
+    HomeHub_DEBUG_PORT.begin(HomeHub_DEBUG_PORT_BAUD);
 	HomeHub_SLAVE_DATA_PORT.begin(HomeHub_SLAVE_DATA_PORT_BAUD);
+    //Mqtt String to char* Conversions
+    Device_Id_As_Publish_Topic.toCharArray(Device_Id_In_Char_As_Publish_Topic, 22);
+    Device_Id_As_Subscription_Topic.toCharArray(Device_Id_In_Char_As_Subscription_Topic, 12);
+    //Mqtt connection setup
+    mqtt_clientname = Device_Id_In_Char_As_Publish_Topic;
+    mqttclient.setServer(mqtt_server, mqtt_port);
+    mqttclient.setCallback([this] (char* topic, byte* payload, unsigned int length) { this->mqttcallback(topic, payload, length); });
+    //Initiate Wire begin
 	Wire.begin();
-    //espclient = new WiFiClient();
-    //mqttclient = new PubSubClient(espclient);
-    //ticker = new Ticker();
-    //ticker->attach_ms(100, std::bind(&HomeHub::slave_handler, this));
+    //Initilize new Ticker function to run serial slave handler
+    ticker = new Ticker();
+    ticker->attach_ms(100, std::bind(&HomeHub::slave_handler, this));
+    //Retrieve saved wifi data from Rom
     retrieve_wifi_data();
 	HomeHub_DEBUG_PRINT("STARTED");
 }
 
 void HomeHub::asynctasks(){
-    if(wifi_setup_webhandler_flag == true){
+    //Handling Wifi Setup client and Page requests in each loop
+    if(_wifi_setup_webhandler_flag == true){
         _wifi_data = scan_networks();
         wifi_setup_webhandler();
         if(_saved_wifi_present_flag == true){
             end_wifi_setup();
+        }
+    }
+    //Handling Mqtt looping and wifi connection fallbacks in each loop
+    if(_mqtt_webhandler_flag == true){
+        if(WiFi.status() != 3){
+            if((millis() - previous_millis) > 10000){
+                previous_millis = millis();
+                saved_wifi_connect();
+            }
+        }
+        else{
+            if(!mqttclient.connected()){
+                initiate_mqtt();
+            }
+            else{
+                mqttclient.loop();
+            }
         }
     }
 }
@@ -85,15 +93,13 @@ void HomeHub::slave_handler(){
 			//For everything that is not for ESP it will be normally sent online 
 			else {
 				HomeHub_DEBUG_PORT.println(_SLAVE_DATA_PORT_command);
-				/*char ToBeSent[9];
-				_DATA_PORT_command.toCharArray(ToBeSent, 9);
-				client.publish(Device_Id_In_Char_As_Publish_Topic, ToBeSent, true);*/
+				publish_mqtt(_SLAVE_DATA_PORT_command);
 				_SLAVE_DATA_PORT_command = "";
 			}
 		}
 	}
 	//Write the buffer Command on bits per cycle basis
-	if (_slave_output_buffer.length() > 0) {
+	if(_slave_output_buffer.length() > 0){
 		char c = _slave_output_buffer.charAt(0);
 		_slave_output_buffer = _slave_output_buffer.substring(1, _slave_output_buffer.length());
 		HomeHub_SLAVE_DATA_PORT.write(c);
@@ -108,7 +114,7 @@ void HomeHub::rom_write(unsigned int eeaddress, byte data) {
 	Wire.write((int)(eeaddress & 0xFF)); // LSB
 	Wire.write(rdata);
 	Wire.endTransmission();
-	delay(10); //Delay introduction solved the data save unreliability
+	delay(20); //Delay introduction solved the data save unreliability
 }
 
 //Custom EEPROM replacement functions
@@ -269,7 +275,7 @@ int HomeHub::normal_webhandler()
   return(20);
 }
 
-char HomeHub::retrieve_wifi_data(){
+bool HomeHub::retrieve_wifi_data(){
   _esid = "";
   _epass = "";
   for (int i = 0;i < 32;++i)
@@ -284,14 +290,14 @@ char HomeHub::retrieve_wifi_data(){
     }
   Serial.print("PASS:");Serial.println(_epass);
   if(_esid.length() > 1){
-    return 's';
+    return true;
   }
   else{
-    return 'f';
+    return false;
   }
 }
 
-char HomeHub::test_wifi() {
+bool HomeHub::test_wifi() {
   Serial.println("Waiting for Wifi to connect");
   for(int i=0;i<100;i++){
     delay(100);
@@ -300,11 +306,11 @@ char HomeHub::test_wifi() {
     }
   }
   if (WiFi.status() == WL_CONNECTED){
-    return('s');
+    return true;
   }
   else{
     Serial.println("Connect timed out");
-    return('f');
+    return false;
   }
 }
 
@@ -372,17 +378,17 @@ void HomeHub::start_server(){
   Serial.println("Server started");
 }
 
-char HomeHub::stop_server(){
+bool HomeHub::stop_server(){
   mdns->close();
   Serial.println("mDNS responder ended");
   // Start the server
   server->stop();
   server->close();
   Serial.println("Server ended");
-  return 's';
+  return true;
 }
 
-char HomeHub::initiate_ap(){
+bool HomeHub::initiate_ap(){
   WiFi.mode(WIFI_AP);
   WiFi.disconnect();
   delay(100);
@@ -392,15 +398,15 @@ char HomeHub::initiate_ap(){
   Serial.println("softap");
 }
 
-char HomeHub::end_ap(){
+bool HomeHub::end_ap(){
   WiFi.softAPdisconnect();
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   return(saved_wifi_connect());
 }
 
-char HomeHub::saved_wifi_connect(){
-  if(retrieve_wifi_data() == 's'){
+bool HomeHub::saved_wifi_connect(){
+  if(retrieve_wifi_data()){
     WiFi.begin(_esid.c_str(), _epass.c_str());
     return (test_wifi());
   }
@@ -432,17 +438,69 @@ void HomeHub::saved_wifi_dump(){
   //EEPROM.commit();
 }
 
-char HomeHub::initiate_wifi_setup(){
+bool HomeHub::initiate_wifi_setup(){
   _wifi_data = scan_networks();
   initiate_ap();
   start_server();
   //ticker->attach_ms(100, std::bind(&HomeHub::scan_networks, this));
   //ticker->attach_ms(1000, std::bind(&HomeHub::wifi_setup_webhandler, this));
-  wifi_setup_webhandler_flag = true;
+  _wifi_setup_webhandler_flag = true;
 }
 
-char HomeHub::end_wifi_setup(){
+bool HomeHub::end_wifi_setup(){
   stop_server();
   end_ap();
-  wifi_setup_webhandler_flag = false;
+  _wifi_setup_webhandler_flag = false;
+}
+
+bool HomeHub::initiate_mqtt(){
+    mqttclient.connect(mqtt_clientname,mqtt_serverid, mqtt_serverpass);
+    
+    if (mqttclient.connected()) {
+        mqttclient.subscribe(Device_Id_In_Char_As_Subscription_Topic);
+        publish_mqtt("[LOGGED IN]");
+        _mqtt_webhandler_flag = true;
+        return 's';
+    } else {
+        Serial.print("Failed to connect to mqtt server, rc=");
+        Serial.print(mqttclient.state());
+        Serial.println("");
+        return 'f';
+    }
+}
+
+HomeHub& HomeHub::setCallback(MQTT_CALLBACK_SIGN)
+{
+    this->mqttCallback = mqttCallback;
+    return *this;
+}
+
+void HomeHub::mqttcallback(char* topic, byte* payload, unsigned int length) {
+  String pay = "";
+  for (int i = 0; i < length; i++) {
+    pay+=(char)payload[i];
+  }
+  LastCommand = pay;
+  Serial.println("Cloud Incomming data : " + pay);
+  String variable = pay.substring(0,5);
+  String value = pay.substring(5,pay.length()-1);
+  if(variable == "<SYN>"){
+    error = "000"; //Data Recieved and matched
+  }
+  String command = "<ERR>"+error+"X";
+  char ToBeSent[11];
+  command.toCharArray(ToBeSent,11);
+  publish_mqtt(ToBeSent);
+  Serial.println("Published with topic : "+Device_Id_As_Publish_Topic);
+  Serial.println("& Payload : "+command);
+}
+    
+void HomeHub::publish_mqtt(String message)
+{
+    mqttclient.publish(Device_Id_In_Char_As_Publish_Topic, message.c_str(), true);
+}
+
+void HomeHub::publish_mqtt(const char* topic, String message)
+{
+    mqttclient.publish(topic, message.c_str());
 }

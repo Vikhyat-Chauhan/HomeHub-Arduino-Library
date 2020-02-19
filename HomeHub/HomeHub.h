@@ -2,7 +2,7 @@
  * HomeHub.h - An TNM Home Automation Library
  * Created by Vikhyat Chauhan @ TNM on 9/11/19
  * www.thenextmove.in
- * Revision #8 - See readMe
+ * Revision #10 - See readMe
  */
 
 #ifndef HomeHub_h
@@ -19,6 +19,8 @@
 
 #include "Arduino.h"
 #include <ESP8266mDNS.h>
+#include <ESP8266HTTPClient.h>
+#include <ESP8266httpUpdate.h>
 #include <WiFiClient.h>
 #include <Ticker.h>
 #include <PubSubClient.h>
@@ -53,6 +55,7 @@ class HomeHub{
 		//Public functions are defined here
 		void asynctasks();
         //Data Management Fucntions
+        void rom_write_page(unsigned int eeaddresspage, byte* data, byte length);
 		void rom_write(unsigned int eeaddress, byte data);
 		byte rom_read(unsigned int eeaddress);
         //Wifi AP Setup Functions
@@ -68,6 +71,7 @@ class HomeHub{
         HomeHub& setCallback(MQTT_CALLBACK_SIGN);
         void publish_mqtt(String message);
         void publish_mqtt(const char* topic, String message);
+        void update_device();
 
 	private:
         //std::unique_ptr<MDNSResponder> mdns;
@@ -98,8 +102,15 @@ class HomeHub{
         const int mqtt_port = 12233;
         MQTT_CALLBACK_SIGN;
     
+        //Device Update
+        const String _host_update = "http://us-central1-sense-smart.cloudfunctions.net/update";
+        const String _firmware_version = "3";
+        bool _boot_check_update_flag = true;
+        
+    
         //Slave Handling Variables
-        int _SLAVE_DATA_PORT_counter = 0;
+        unsigned int _SLAVE_DATA_PORT_counter = 0;
+        bool _receiving_json = false;
         bool _initiate_AP = false;
         String _SLAVE_DATA_PORT_command = "";
         String _slave_output_buffer = "";
@@ -107,6 +118,7 @@ class HomeHub{
         //async Task control variables
         bool _wifi_setup_webhandler_flag = false;
         bool _mqtt_webhandler_flag = false;
+        bool _check_update_flag = false;
 
 		//Private Functions 
 		void slave_handler();

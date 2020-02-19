@@ -2,7 +2,7 @@
 * HomeHub.cpp - An TNM Home Automation Library
 * Created by Vikhyat Chauhan @ TNM on 9/11/19
 * www.thenextmove.in
-* Revision #8 - See readMe
+* Revision #10 - See readMe
 */
 
 #include "HomeHub.h"
@@ -26,7 +26,7 @@ HomeHub::HomeHub(){
 	Wire.begin();
     //Initilize new Ticker function to run serial slave handler
     ticker = new Ticker();
-    ticker->attach_ms(100, std::bind(&HomeHub::slave_handler, this));
+    ticker->attach_ms(1, std::bind(&HomeHub::slave_handler, this));
     //Retrieve saved wifi data from Rom
     retrieve_wifi_data();
 	HomeHub_DEBUG_PRINT("STARTED");
@@ -62,48 +62,28 @@ void HomeHub::asynctasks(){
 
 void HomeHub::slave_handler(){
 	//Read incomming bit per cycle and decode the incomming commands
-	if (HomeHub_SLAVE_DATA_PORT.available()) {
-		char c = HomeHub_SLAVE_DATA_PORT.read();
-		if (_SLAVE_DATA_PORT_counter == 1) {
-			_SLAVE_DATA_PORT_command += c;
-		}
-		if (c == '<') {
-			_SLAVE_DATA_PORT_counter = 1;
-		}
-		if (c == 'X') {
-			_SLAVE_DATA_PORT_counter = 0;
-			_SLAVE_DATA_PORT_command = "<" + _SLAVE_DATA_PORT_command;
-			String variable = _SLAVE_DATA_PORT_command.substring(0, 5);
-			String value = _SLAVE_DATA_PORT_command.substring(5, _SLAVE_DATA_PORT_command.length() - 1);
-			//Selected commands only to read by esp offline
-			if (variable == "<WSP>") {
-				_initiate_AP = true;
-				//start_hotspot();
-				_SLAVE_DATA_PORT_command = "";
-			}
-			else if (variable == "<WRI>") {
-				int i = value.toInt();
-				rom_write(2, i);
-				_SLAVE_DATA_PORT_command = "";
-			}
-			else if (variable == "<REA>") {
-				HomeHub_DEBUG_PORT.println(rom_read(2));
-				_SLAVE_DATA_PORT_command = "";
-			}
-			//For everything that is not for ESP it will be normally sent online 
-			else {
-				HomeHub_DEBUG_PORT.println(_SLAVE_DATA_PORT_command);
-				publish_mqtt(_SLAVE_DATA_PORT_command);
-				_SLAVE_DATA_PORT_command = "";
-			}
-		}
-	}
-	//Write the buffer Command on bits per cycle basis
-	if(_slave_output_buffer.length() > 0){
-		char c = _slave_output_buffer.charAt(0);
-		_slave_output_buffer = _slave_output_buffer.substring(1, _slave_output_buffer.length());
-		HomeHub_SLAVE_DATA_PORT.write(c);
-	}
+    if(HomeHub_SLAVE_DATA_PORT.available()) {
+        char c = HomeHub_SLAVE_DATA_PORT.read();
+        if (c == '{'){
+            if(_SLAVE_DATA_PORT_counter==0){
+                _receiving_json = true;
+            }
+            _SLAVE_DATA_PORT_counter+=1;
+            _SLAVE_DATA_PORT_command += c;
+        }
+        else if (c == '}'){
+            _SLAVE_DATA_PORT_counter+=-1;
+            _SLAVE_DATA_PORT_command += c;
+        }
+        else{
+            _SLAVE_DATA_PORT_command += c;
+        }
+        if(_SLAVE_DATA_PORT_counter == 0 && _receiving_json == true){
+            HomeHub_SLAVE_DATA_PORT.println(_SLAVE_DATA_PORT_command);
+            _SLAVE_DATA_PORT_command = "";
+            _receiving_json = false;
+        }
+    }
 }
 
 //Custom EEPROM replacement functions
@@ -127,6 +107,16 @@ byte HomeHub::rom_read(unsigned int eeaddress) {
 	Wire.requestFrom(ROM_ADDRESS, 1);
 	if (Wire.available()) rdata = Wire.read();
 	return rdata;
+}
+
+void rom_write_page(unsigned int eeaddresspage, byte* data, byte length ) {
+    Wire.beginTransmission(ROM_ADDRESS);
+    Wire.write((int)(eeaddresspage >> 8)); // MSB
+    Wire.write((int)(eeaddresspage & 0xFF)); // LSB
+    byte c;
+    for ( c = 0; c < length; c++)
+        Wire.write(data[c]);
+    Wire.endTransmission();
 }
 
 int HomeHub::wifi_setup_webhandler()
@@ -408,7 +398,13 @@ bool HomeHub::end_ap(){
 bool HomeHub::saved_wifi_connect(){
   if(retrieve_wifi_data()){
     WiFi.begin(_esid.c_str(), _epass.c_str());
-    return (test_wifi());
+    bool connection_result = test_wifi();
+    if(connection_result){
+        if(_boot_check_update_flag == true){
+            update_device();
+          }
+      }
+    return (connection_result);
   }
 }
 
@@ -503,4 +499,22 @@ void HomeHub::publish_mqtt(String message)
 void HomeHub::publish_mqtt(const char* topic, String message)
 {
     mqttclient.publish(topic, message.c_str());
+}
+
+void HomeHub::update_device()
+{
+    t_httpUpdate_return ret = ESPhttpUpdate.update(_Client, _host_update, _firmware_version);
+    switch (ret) {
+      case HTTP_UPDATE_FAILED:
+            HomeHub_DEBUG_PORT.println("HTTP_UPDATE_FAILD Error (%d): %s\n");//,ESPhttpUpdate.getLastError(),ESPhttpUpdate.getLastErrorString().c_str());
+        break;
+
+      case HTTP_UPDATE_NO_UPDATES:
+        HomeHub_DEBUG_PORT.println("HTTP_UPDATE_NO_UPDATES");
+        break;
+
+      case HTTP_UPDATE_OK:
+        HomeHub_DEBUG_PORT.println("HTTP_UPDATE_OK");
+        break;
+    }
 }

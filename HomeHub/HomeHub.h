@@ -8,6 +8,7 @@
 #ifndef HomeHub_h
 #define HomeHub_h
 
+
 /* Setup debug printing macros. */
 #define HomeHub_DEBUG
 
@@ -18,6 +19,7 @@
 #define HomeHub_SLAVE_DATA_PORT_BAUD 9600
 
 #include "Arduino.h"
+#include <ArduinoJson.h>
 #include <ESP8266mDNS.h>
 #include <ESP8266HTTPClient.h>
 #include <ESP8266httpUpdate.h>
@@ -27,6 +29,8 @@
 #include <ESP8266WiFi.h>
 #include <pgmspace.h>
 #include <Wire.h>
+#include <DS3231.h>
+#include <vector>
 
 #ifdef ESP8266
 #include <functional>
@@ -43,6 +47,36 @@
 #endif
 
 #define ROM_ADDRESS 0x57
+#define RELAY_MAX_NUMBER 10
+
+typedef struct{
+    bool state;
+    unsigned long value;
+    bool change = false;
+}RELAY;
+
+typedef struct{
+    bool state;
+    unsigned long value;
+    bool change = false;
+}FAN;
+
+typedef struct{
+    const char* type;
+    unsigned long value;
+    bool change = false;
+}SENSOR;
+
+typedef struct{
+    const char* NAME;
+    unsigned int RELAY_NUMBER;
+    unsigned int FAN_NUMBER;
+    unsigned int SENSOR_NUMBER;
+    RELAY relay[10];
+    FAN fan[10];
+    SENSOR sensor[10];
+}SLAVE;
+
 
 //const char HTTP_EN[] PROGMEM = "</div></body></html>";
 
@@ -63,6 +97,7 @@ class HomeHub{
         bool end_wifi_setup();
         //Wifi Functions
         bool saved_wifi_connect();
+        bool manual_wifi_connect(const char* wifi, const char* pass);
         void saved_wifi_dump();
         void save_wifi_data(String ssid,String password);
         //Mqtt Functions
@@ -80,11 +115,15 @@ class HomeHub{
         WiFiServer* server;
         Ticker* ticker;
     
+        //Slave struct variable
+        SLAVE slave;
+    
 		//Wifi Variables
         String _ssid_string = "TNM" + String(ESP.getChipId());
         String _wifi_data = "";
         String _esid = "";
         String _epass = "";
+        int _wifi_data_memspace = 0;
         bool _saved_wifi_present_flag = false;
     
         //Mqtt Variables
@@ -111,17 +150,34 @@ class HomeHub{
         //Slave Handling Variables
         unsigned int _SLAVE_DATA_PORT_counter = 0;
         bool _receiving_json = false;
+        bool _received_json = false;
         bool _initiate_AP = false;
         String _SLAVE_DATA_PORT_command = "";
-        String _slave_output_buffer = "";
+        String _slave_command_buffer = "";
+    
+        //Time Sensor Variables
+        int _timesensor_date,_timesensor_month,_timesensor_year,_timesensor_week,_timesensor_hour,_timesensor_minute,_timesensor_second,_timesensor_temp,_timesensor_error_code;
+        bool _timesensor_h12 = false;
+        bool _timesensor_century = false;
+        bool _timesensor_pmam;
+        boolean _timesensor_error;
+        boolean _timesensor_set = 1;
+        byte _timesensor_memspace[3] = {NULL,260,261};
     
         //async Task control variables
         bool _wifi_setup_webhandler_flag = false;
         bool _mqtt_webhandler_flag = false;
         bool _check_update_flag = false;
+        bool _slave_handshake_flag = false;
+    
+        //millis variables for async tasks
+        unsigned long _slave_handshake_millis = 0.0;
 
 		//Private Functions 
 		void slave_handler();
+        void slave_sync_handler();
+        bool slave_handshake_handler();
+        void slave_command_processor(const char* command);
         void start_server();
         bool stop_server();
         bool initiate_ap();
@@ -131,6 +187,7 @@ class HomeHub{
         bool retrieve_wifi_data();
         bool test_wifi();
         String scan_networks();
+        void timesensor_handler();
 };
 
 #endif

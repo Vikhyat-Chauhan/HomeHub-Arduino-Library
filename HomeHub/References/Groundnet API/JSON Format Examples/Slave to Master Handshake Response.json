@@ -1,0 +1,3 @@
+{"NAME":"4RELAY","ROLE":"SLAVE","DEVICE":{"RELAY":[{"STATE":true,"VALUE":0},{"STATE":true,"VALUE":0},{"STATE":true,"VALUE":0},{"STATE":true,"VALUE":0}],"FAN":[{"STATE":false,"VALUE":0},{"STATE":false,"VALUE":0}],"SENSOR":[{"TYPE":null,"VALUE":0},{"TYPE":null,"VALUE":0}]}}
+
+{"NAME":"4RELAY","ROLE":"SLAVE","DEVICE":{"RELAY":[{"STATE":true,"VALUE":0},{"STATE":true,"VALUE":0},{"STATE":true,"VALUE":0},{"STATE":true,"VALUE":0}],"SENSOR":[{"TYPE":"TEMP","VALUE":25}]}}

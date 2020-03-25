@@ -9,3 +9,6 @@ This revision contains:
 -> Complete Wifi Data management code.
 -> Added Json Code capturing from slave serial port.
 -> Added OTA feature including OTA check on boot and OTA on demand from cloud.[MQTT command remaining for OTA on demand]
+-> Added Various structures and Device handling codes
+-> Added Slave Handling codes(Handshake and Syncronization)
+-> Added Mqtt Communication Handling codes(Incomming and Outgoing)

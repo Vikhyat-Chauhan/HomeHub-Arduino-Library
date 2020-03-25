@@ -18,56 +18,35 @@ HomeHub::HomeHub(){
 	HomeHub_SLAVE_DATA_PORT.begin(HomeHub_SLAVE_DATA_PORT_BAUD);
     //Mqtt String to char* Conversions
     Device_Id_As_Publish_Topic.toCharArray(Device_Id_In_Char_As_Publish_Topic, 22);
-    Device_Id_As_Subscription_Topic.toCharArray(Device_Id_In_Char_As_Subscription_Topic, 12);
+    Device_Id_As_Subscription_Topic.toCharArray(Device_Id_In_Char_As_Subscription_Topic, 20);
     //Mqtt connection setup
     mqtt_clientname = Device_Id_In_Char_As_Publish_Topic;
     mqttclient.setServer(mqtt_server, mqtt_port);
     mqttclient.setCallback([this] (char* topic, byte* payload, unsigned int length) { this->mqttcallback(topic, payload, length); });
     //Initiate Wire begin
-	Wire.begin();
+	//Wire.begin();
     //Initilize new Ticker function to run serial slave handler
     ticker = new Ticker();
-    ticker->attach_ms(1, std::bind(&HomeHub::slave_handler, this));
+    ticker->attach_ms(1, std::bind(&HomeHub::salve_serial_json_input_capture, this));
     //Retrieve saved wifi data from Rom
-    _slave_handshake_flag = true;
+    master.flag.slave_handshake = true;
     retrieve_wifi_data();
 	HomeHub_DEBUG_PRINT("STARTED");
 }
 
 void HomeHub::asynctasks(){
-    timesensor_handler();
-    if(_slave_handshake_flag == true){
-        if(_slave_handshake_millis == 0.0){
-            char* request_handshake = "{\"COMMAND\":\"HANDSHAKE\"}";
-            HomeHub_SLAVE_DATA_PORT.println(request_handshake);
-            _slave_handshake_millis = millis() + 5000;
-        }
-        else{
-            if(millis() > _slave_handshake_millis){
-                if(slave_handshake_handler() == true){
-                    _slave_handshake_flag = false;
-                    HomeHub_DEBUG_PRINT("Slave Handshake Complete");
-                }
-                else{
-                    HomeHub_DEBUG_PRINT("No Slave detected, retrying.");
-                    _slave_handshake_millis = 0.0;
-                }
-            }
-        }
-    }
-    else{
-        slave_sync_handler();
-    }
+    //timesensor_handler();
+    slave_input_handler();
     //Handling Wifi Setup client and Page requests in each loop
-    if(_wifi_setup_webhandler_flag == true){
+    if(master.flag.wifi_setup_webhandler == true){
         _wifi_data = scan_networks();
         wifi_setup_webhandler();
-        if(_saved_wifi_present_flag == true){
+        if(master.flag.saved_wifi_present == true){
             end_wifi_setup();
         }
     }
     //Handling Mqtt looping and wifi connection fallbacks in each loop
-    if(_mqtt_webhandler_flag == true){
+    if(master.flag.mqtt_webhandler == true){
         if(WiFi.status() != 3){
             if((millis() - previous_millis) > 10000){
                 previous_millis = millis();
@@ -83,39 +62,112 @@ void HomeHub::asynctasks(){
             }
         }
     }
+    device_handler(); // Should be only placed at end of each loop since it monitors changes
+    slave_output_handler();
+    if(mqttclient.connected()){
+        mqtt_output_handler();
+    }
 }
 
-void HomeHub::slave_handler(){
-	//Read incomming bit per cycle and decode the incomming commands
-    if(HomeHub_SLAVE_DATA_PORT.available()) {
-        char c = HomeHub_SLAVE_DATA_PORT.read();
-        if (c == '{'){
-            if(_SLAVE_DATA_PORT_counter==0){
-                _receiving_json = true;
-                _SLAVE_DATA_PORT_command = "";
+void HomeHub::slave_output_handler(){
+    if(master.flag.slave_handshake == false){
+        if(master.slave.change == true){
+            StaticJsonDocument<600> doc;
+            doc["ROLE"] = "MASTER";
+            JsonObject device = doc.createNestedObject("DEVICE");
+            if(master.slave.all_relay_change == true){
+                if((master.slave.all_relay_lastslavecommand == false)||(master.slave.all_relay_lastmqttcommand == true)){
+                JsonArray relay = device.createNestedArray("RELAY");
+                for(int i=0;i<master.slave.RELAY_NUMBER;i++){
+                  JsonObject relay_x = relay.createNestedObject();
+                    if(master.slave.relay[i].change == true){
+                        if((master.slave.relay[i].lastslavecommand == false)||(master.slave.relay[i].lastmqttcommand == true)){
+                            relay_x["STATE"] = master.slave.relay[i].current_state;
+                            relay_x["VALUE"] = master.slave.relay[i].current_value;
+                        }
+                    }
+                }
             }
-            _SLAVE_DATA_PORT_counter+=1;
-            _SLAVE_DATA_PORT_command += c;
+            }
+            if(master.slave.all_fan_change == true){
+                if((master.slave.all_fan_lastslavecommand == false)||(master.slave.all_fan_lastmqttcommand == true)){
+                JsonArray fan = device.createNestedArray("FAN");
+                for(int i=0;i<master.slave.FAN_NUMBER;i++){
+                  JsonObject fan_x = fan.createNestedObject();
+                    if(master.slave.fan[i].change == true){
+                        if((master.slave.fan[i].lastslavecommand == false)||(master.slave.fan[i].lastmqttcommand == true)){
+                            fan_x["STATE"] = master.slave.fan[i].current_state;
+                            fan_x["VALUE"] = master.slave.fan[i].current_value;
+                        }
+                    }
+                }
+                }
+            }
+            if(master.slave.all_sensor_change == true){
+                if((master.slave.all_sensor_lastslavecommand == false)||(master.slave.all_sensor_lastmqttcommand == true)){
+                JsonArray sensor = device.createNestedArray("SENSOR");
+                for(int i=0;i<master.slave.SENSOR_NUMBER;i++){
+                  JsonObject sensor_x = sensor.createNestedObject();
+                    if(master.slave.sensor[i].change == true){
+                        if((master.slave.sensor[i].lastslavecommand == false)||(master.slave.sensor[i].lastmqttcommand == true)){
+                            sensor_x["VALUE"] = master.slave.sensor[i].current_value;
+                    }
+                    }
+                }
+                }
+            }
+            //Command
+            String command = slave_push_command();
+            if(command != "NULL"){
+              doc["COMMAND"] = command;
+            }
+            serializeJson(doc, HomeHub_SLAVE_DATA_PORT);
         }
-        else if (c == '}'){
-            _SLAVE_DATA_PORT_counter+=-1;
-            _SLAVE_DATA_PORT_command += c;
+        
+    }
+}
+
+String HomeHub::slave_push_command(){
+  if(master.flag.initiate_ap == true){
+    master.flag.initiate_ap = false;
+    String output_command = "WIFI_RESET";
+    return output_command;
+  }
+  else{
+    String output_command = "NULL";
+    return output_command;
+  }
+}
+
+void HomeHub::slave_input_handler(){
+    //Proceed with receiving handshake or sync input from slave
+    if(master.flag.slave_handshake == true){
+        if(_slave_handshake_millis == 0.0){
+            char* request_handshake = "{\"COMMAND\":\"HANDSHAKE\"}";
+            HomeHub_SLAVE_DATA_PORT.print(request_handshake);
+            _slave_handshake_millis = millis() + 3000;
         }
         else{
-            _SLAVE_DATA_PORT_command += c;
+            if(millis() > _slave_handshake_millis){
+                if(slave_handshake_handler() == true){
+                    master.flag.slave_handshake = false;
+                    HomeHub_DEBUG_PRINT("Slave Handshake Complete");
+                }
+                else{
+                    HomeHub_DEBUG_PRINT("No Slave detected, retrying.");
+                    _slave_handshake_millis = 0.0;
+                }
+            }
         }
-        if(_SLAVE_DATA_PORT_counter == 0 && _receiving_json == true){
-            //HomeHub_SLAVE_DATA_PORT.println(_SLAVE_DATA_PORT_command);
-            _slave_command_buffer = _SLAVE_DATA_PORT_command;
-            _SLAVE_DATA_PORT_command = "";
-            _receiving_json = false;
-            _received_json = true;
-        }
+    }
+    //if handshake has be completed only guide to slave syncronisation command handler
+    else{
+        slave_sync_handler();
     }
 }
 
 bool HomeHub::slave_handshake_handler(){
-    if(_received_json == true){
+    if(master.flag.received_json == true){
         DynamicJsonDocument doc(1024);
         deserializeJson(doc, _slave_command_buffer);
         JsonObject obj = doc.as<JsonObject>();
@@ -123,29 +175,47 @@ bool HomeHub::slave_handshake_handler(){
         JsonArray relays = doc["DEVICE"]["RELAY"];
         JsonArray fans = doc["DEVICE"]["FAN"];
         JsonArray sensors = doc["DEVICE"]["SENSOR"];
-        slave.NAME = doc["NAME"];
-        slave.RELAY_NUMBER = relays.size();
-        slave.FAN_NUMBER = fans.size();
-        slave.SENSOR_NUMBER = sensors.size();
+        master.slave.NAME = doc["NAME"];
+        master.slave.RELAY_NUMBER = relays.size();
+        master.slave.FAN_NUMBER = fans.size();
+        master.slave.SENSOR_NUMBER = sensors.size();
         int index = 0;
         for (JsonObject repo : relays){
-            slave.relay[index].state = repo["STATE"].as<bool>();
-            slave.relay[index].value = repo["VALUE"].as<int>();
+            if(repo.containsKey("STATE")) { //Check if Key is actually present in it, or it will insert default values in places of int
+                master.slave.relay[index].current_state = repo["STATE"].as<bool>();
+                master.slave.relay[index].lastslavecommand = true;
+            }
+            if(repo.containsKey("VALUE")) {
+                master.slave.relay[index].current_value = repo["VALUE"].as<int>();
+                master.slave.relay[index].lastslavecommand = true;
+            }
             index++;
         }
         index = 0;
         for (JsonObject repo : fans){
-            slave.fan[index].state = repo["STATE"].as<bool>();
-            slave.fan[index].value = repo["VALUE"].as<int>();
+            if(repo.containsKey("STATE")) { //Check if Key is actually present in it, or it will insert default values in places of int
+                master.slave.fan[index].current_state = repo["STATE"].as<bool>();
+                master.slave.fan[index].lastslavecommand = true;
+            }
+            if(repo.containsKey("VALUE")) {
+                master.slave.fan[index].current_value = repo["VALUE"].as<int>();
+                master.slave.fan[index].lastslavecommand = true;
+            }
             index++;
         }
         index = 0;
         for (JsonObject repo : sensors){
-            slave.sensor[index].type = repo["TYPE"].as<char *>();
-            slave.sensor[index].value = repo["VALUE"].as<int>();
+            if(repo.containsKey("TYPE")) { //Check if Key is actually present in it, or it will insert default values in places of int
+                master.slave.sensor[index].type = repo["TYPE"].as<char *>();
+                master.slave.sensor[index].lastslavecommand = true;
+            }
+            if(repo.containsKey("VALUE")) {
+                master.slave.sensor[index].current_value = repo["VALUE"].as<int>();
+                master.slave.sensor[index].lastslavecommand = true;
+            }
             index++;
         }
-        _received_json = false;
+        master.flag.received_json = false;
         if(role == "SLAVE"){
             return true;
         }
@@ -157,44 +227,69 @@ bool HomeHub::slave_handshake_handler(){
 }
 
 void HomeHub::slave_sync_handler(){
-    if(_received_json == true){
+    if(master.flag.received_json == true){
+        //Rester Last Slave Command flags to false
+        for(int i=0;i<10;i++){
+            master.slave.relay[i].lastslavecommand = false;
+        }
+        for(int i=0;i<10;i++){
+            master.slave.fan[i].lastslavecommand = false;
+        }
+        for(int i=0;i<10;i++){
+            master.slave.sensor[i].lastslavecommand = false;
+        }
         DynamicJsonDocument doc(1024);
         deserializeJson(doc, _slave_command_buffer);
         JsonObject obj = doc.as<JsonObject>();
         JsonArray relays = doc["DEVICE"]["RELAY"];
         JsonArray fans = doc["DEVICE"]["FAN"];
         JsonArray sensors = doc["DEVICE"]["SENSOR"];
-        slave.NAME = doc["NAME"];
-        slave.RELAY_NUMBER = relays.size();
-        slave.FAN_NUMBER = fans.size();
-        slave.SENSOR_NUMBER = sensors.size();
+        master.slave.NAME = doc["NAME"];
         int index = 0;
         for (JsonObject repo : relays){
-            slave.relay[index].state = repo["STATE"].as<bool>();
-            slave.relay[index].value = repo["VALUE"].as<int>();
+            if(repo.containsKey("STATE")) { //Check if Key is actually present in it, or it will insert default values in places of int
+                master.slave.relay[index].current_state = repo["STATE"].as<bool>();
+                master.slave.relay[index].lastslavecommand = true;
+            }
+            if(repo.containsKey("VALUE")) {
+                master.slave.relay[index].current_value = repo["VALUE"].as<int>();
+                master.slave.relay[index].lastslavecommand = true;
+            }
             index++;
         }
         index = 0;
         for (JsonObject repo : fans){
-            slave.fan[index].state = repo["STATE"].as<bool>();
-            slave.fan[index].value = repo["VALUE"].as<int>();
+            if(repo.containsKey("STATE")) { //Check if Key is actually present in it, or it will insert default values in places of int
+                master.slave.fan[index].current_state = repo["STATE"].as<bool>();
+                master.slave.fan[index].lastslavecommand = true;
+            }
+            if(repo.containsKey("VALUE")) {
+                master.slave.fan[index].current_value = repo["VALUE"].as<int>();
+                master.slave.fan[index].lastslavecommand = true;
+            }
             index++;
         }
         index = 0;
         for (JsonObject repo : sensors){
-            slave.sensor[index].type = repo["TYPE"].as<char *>();
-            slave.sensor[index].value = repo["VALUE"].as<int>();
+            if(repo.containsKey("TYPE")) { //Check if Key is actually present in it, or it will insert default values in places of int
+                master.slave.sensor[index].type = repo["TYPE"].as<char *>();
+                master.slave.sensor[index].lastslavecommand = true;
+            }
+            if(repo.containsKey("VALUE")) {
+                master.slave.sensor[index].current_value = repo["VALUE"].as<int>();
+                master.slave.sensor[index].lastslavecommand = true;
+            }
             index++;
         }
-    _received_json = false;
+    master.flag.received_json = false;
     const char* command = doc["COMMAND"];
     if(command != nullptr){
-        slave_command_processor(command);
+        slave_receive_command(command);
     }
   }
 }
 
-void HomeHub::slave_command_processor(const char* command){
+void HomeHub::slave_receive_command(const char* command){
     char Command[20];
     strlcpy(Command, command,20);
     if((strncmp(Command,"WIFI_SETUP_START",20) == 0)){
@@ -215,6 +310,180 @@ void HomeHub::slave_command_processor(const char* command){
     }
     else{
         HomeHub_DEBUG_PRINT("Unsupported Command");
+    }
+}
+
+void HomeHub::salve_serial_json_input_capture(){
+    //Read incomming bit per cycle and decode the incomming commands
+    if(HomeHub_SLAVE_DATA_PORT.available()) {
+        char c = HomeHub_SLAVE_DATA_PORT.read();
+        if (c == '{'){
+            if(_SLAVE_DATA_PORT_counter==0){
+                master.flag.receiving_json = true;
+                _SLAVE_DATA_PORT_command = "";
+            }
+            _SLAVE_DATA_PORT_counter+=1;
+            _SLAVE_DATA_PORT_command += c;
+        }
+        else if (c == '}'){
+            _SLAVE_DATA_PORT_counter+=-1;
+            _SLAVE_DATA_PORT_command += c;
+        }
+        else{
+            _SLAVE_DATA_PORT_command += c;
+        }
+        if(_SLAVE_DATA_PORT_counter == 0 && master.flag.receiving_json == true){
+            _slave_command_buffer = _SLAVE_DATA_PORT_command;
+            _SLAVE_DATA_PORT_command = "";
+            master.flag.receiving_json = false;
+            master.flag.received_json = true;
+        }
+    }
+}
+
+void HomeHub::device_handler(){
+    //Check handshake flag to confirm that slave has actually been connected to the master module before monitoring slave changes
+    if(master.flag.slave_handshake == false){
+    int all_relay_change_counter = 0;
+    int all_fan_change_counter = 0;
+    int all_sensor_change_counter = 0;
+    int all_relay_lastslavecommand_counter = 0;
+    int all_fan_lastslavecommand_counter = 0;
+    int all_sensor_lastslavecommand_counter = 0;
+    int all_relay_lastmqttcommand_counter = 0;
+    int all_fan_lastmqttcommand_counter = 0;
+    int all_sensor_lastmqttcommand_counter = 0;
+    
+    //activate changes flag of individual relay devices
+    for(int i=0;i<master.slave.RELAY_NUMBER;i++){
+        if(master.slave.relay[i].lastslavecommand == true){ //Universtal counter for all relay lastslavecommand
+            all_relay_lastslavecommand_counter++;
+        }
+        if(master.slave.relay[i].lastmqttcommand == true){ //Universtal counter for all relay lastslavecommand
+            all_relay_lastmqttcommand_counter++;
+        }//Universal counter for all relay changes
+        if(master.slave.relay[i].current_state != master.slave.relay[i].previous_state){
+            master.slave.relay[i].change = true;
+            all_relay_change_counter++;
+        }
+        else if(master.slave.relay[i].current_value != master.slave.relay[i].previous_value){
+            master.slave.relay[i].change = true;
+            all_relay_change_counter++;
+        }
+        else{
+            master.slave.relay[i].change = false;
+        }
+        master.slave.relay[i].previous_state = master.slave.relay[i].current_state;
+        master.slave.relay[i].previous_value = master.slave.relay[i].current_value;
+    }
+    //activate changes flag of individual fan devices
+    for(int i=0;i<master.slave.FAN_NUMBER;i++){
+        if(master.slave.fan[i].lastslavecommand == true){ //Universtal counter for all fan lastslavecommand
+            all_fan_lastslavecommand_counter++;
+        }
+        if(master.slave.fan[i].lastmqttcommand == true){ //Universtal counter for all fan lastslavecommand
+            all_fan_lastmqttcommand_counter++;
+        }
+        if(master.slave.fan[i].current_state != master.slave.fan[i].previous_state){
+            master.slave.fan[i].change = true;
+            all_fan_change_counter++;
+        }
+        else if(master.slave.fan[i].current_value != master.slave.fan[i].previous_value){
+            all_fan_change_counter++;
+        }
+        else{
+            master.slave.fan[i].change = false;
+        }
+        master.slave.fan[i].previous_state = master.slave.fan[i].current_state;
+        master.slave.fan[i].previous_value = master.slave.fan[i].current_value;
+    }
+    //activate changes flag of individual sensor devices
+    for(int i=0;i<master.slave.SENSOR_NUMBER;i++){
+        if(master.slave.sensor[i].lastslavecommand == true){ //Universtal counter for all sensor lastslavecommand
+            all_sensor_lastslavecommand_counter++;
+        }
+        if(master.slave.sensor[i].lastmqttcommand == true){ //Universtal counter for all sensor lastmqttcommand
+            all_sensor_lastmqttcommand_counter++;
+        }
+        if(master.slave.sensor[i].current_value != master.slave.sensor[i].previous_value){
+            master.slave.sensor[i].change = true;
+            all_sensor_change_counter++;
+        }
+        else{
+            master.slave.sensor[i].change = false;
+        }
+        master.slave.sensor[i].previous_value = master.slave.sensor[i].current_value;
+    }
+    //activate lastslavecommand flag for relay structure wide
+    if(all_relay_lastslavecommand_counter == 0){
+        master.slave.all_relay_lastslavecommand = false;
+    }
+    else{
+        master.slave.all_relay_lastslavecommand = true;
+    }
+    //activate lastslavecommand flag for fan structure wide
+    if(all_fan_lastslavecommand_counter == 0){
+        master.slave.all_fan_lastslavecommand = false;
+    }
+    else{
+        master.slave.all_fan_lastslavecommand = true;
+    }
+    //activate lastslavecommand flag for sensor structure wide
+    if(all_sensor_lastslavecommand_counter == 0){
+        master.slave.all_sensor_lastslavecommand = false;
+    }
+    else{
+        master.slave.all_sensor_lastslavecommand = true;
+    }
+    //activate lastmqttcommand flag for relay structure wide
+    if(all_relay_lastmqttcommand_counter == 0){
+        master.slave.all_relay_lastmqttcommand = false;
+    }
+    else{
+        master.slave.all_relay_lastmqttcommand = true;
+    }
+    //activate lastmqttcommand flag for fan structure wide
+    if(all_fan_lastslavecommand_counter == 0){
+        master.slave.all_fan_lastmqttcommand = false;
+    }
+    else{
+        master.slave.all_fan_lastmqttcommand = true;
+    }
+    //activate lastmqttcommand flag for sensor structure wide
+    if(all_sensor_lastmqttcommand_counter == 0){
+        master.slave.all_sensor_lastmqttcommand = false;
+    }
+    else{
+        master.slave.all_sensor_lastmqttcommand = true;
+    }
+    //activate changes flag for full relay structure
+    if(all_relay_change_counter == 0){
+        master.slave.all_relay_change = false;
+    }
+    else{
+        master.slave.all_relay_change = true;
+    }
+    //activate changes flag for full fan structure
+    if(all_fan_change_counter == 0){
+        master.slave.all_fan_change = false;
+    }
+    else{
+        master.slave.all_fan_change = true;
+    }
+    //activate changes flag for full sensor structure
+    if(all_sensor_change_counter == 0){
+        master.slave.all_sensor_change = false;
+    }
+    else{
+        master.slave.all_sensor_change = true;
+    }
+    //activate slave wide change variable if any device structure changes ie relay, fan or sensor
+    if((master.slave.all_relay_change == false) && (master.slave.all_fan_change == false) && (master.slave.all_sensor_change == false)){
+        master.slave.change = false;
+    }
+    else{
+        master.slave.change = true;
+    }
     }
 }
 
@@ -337,7 +606,7 @@ String HomeHub::scan_networks(){
       }
       if(test_counter == current_wifi.length()){
         HomeHub_DEBUG_PRINT("Saved Wifi present");
-        _saved_wifi_present_flag = true;
+        master.flag.saved_wifi_present = true;
       }
     }
     wifi_data += "</ul>";
@@ -387,7 +656,7 @@ bool HomeHub::saved_wifi_connect(){
     WiFi.begin(_esid.c_str(), _epass.c_str());
     bool connection_result = test_wifi();
     if(connection_result){
-        if(_boot_check_update_flag == true){
+        if(master.flag.boot_check_update == true){
             update_device();
           }
       }
@@ -399,7 +668,7 @@ bool HomeHub::manual_wifi_connect(const char* wifi, const char* pass){
     WiFi.begin(wifi, pass);
     bool connection_result = test_wifi();
     if(connection_result){
-        if(_boot_check_update_flag == true){
+        if(master.flag.boot_check_update == true){
             update_device();
         }
     }
@@ -438,26 +707,25 @@ bool HomeHub::initiate_wifi_setup(){
   start_server();
   //ticker->attach_ms(100, std::bind(&HomeHub::scan_networks, this));
   //ticker->attach_ms(1000, std::bind(&HomeHub::wifi_setup_webhandler, this));
-  _wifi_setup_webhandler_flag = true;
+  master.flag.wifi_setup_webhandler= true;
 }
 
 bool HomeHub::end_wifi_setup(){
   stop_server();
   end_ap();
-  _wifi_setup_webhandler_flag = false;
+  master.flag.wifi_setup_webhandler = false;
 }
 
 bool HomeHub::initiate_mqtt(){
-    mqttclient.connect(mqtt_clientname,mqtt_serverid, mqtt_serverpass);
-    
+    mqttclient.connect(mqtt_clientname,mqtt_serverid, mqtt_serverpass,"WillTopic",1,1,"willMessage");
     if (mqttclient.connected()) {
         mqttclient.subscribe(Device_Id_In_Char_As_Subscription_Topic);
         publish_mqtt("[LOGGED IN]");
-        _mqtt_webhandler_flag = true;
+        master.flag.mqtt_webhandler = true;
         return 's';
     } else {
         HomeHub_DEBUG_PRINT("Failed to connect to mqtt server, rc=");
-        HomeHub_DEBUG_PORT.print(mqttclient.state());
+        //HomeHub_DEBUG_PORT.print(mqttclient.state());
         return 'f';
     }
 }
@@ -470,34 +738,163 @@ HomeHub& HomeHub::setCallback(MQTT_CALLBACK_SIGN)
 
 void HomeHub::mqttcallback(char* topic, byte* payload, unsigned int length) {
   String pay = "";
+  String Topic = topic;
   for (int i = 0; i < length; i++) {
     pay+=(char)payload[i];
   }
   LastCommand = pay;
-  HomeHub_DEBUG_PORT.println("Cloud Incomming data : " + pay);
-  String variable = pay.substring(0,5);
-  String value = pay.substring(5,pay.length()-1);
-  if(variable == "<SYN>"){
-    error = "000"; //Data Recieved and matched
-  }
-  String command = "<ERR>"+error+"X";
+  mqtt_input_handler(Topic, pay);
+  String command = "changed";
   char ToBeSent[11];
   command.toCharArray(ToBeSent,11);
   publish_mqtt(ToBeSent);
-  HomeHub_DEBUG_PORT.println("Published with topic : "+Device_Id_As_Publish_Topic);
-  HomeHub_DEBUG_PORT.println("& Payload : "+command);
 }
     
+bool HomeHub::mqtt_input_handler(String topic,String payload){
+    //HomeHub_DEBUG_PORT.println("Topic : "+topic);
+    //HomeHub_DEBUG_PORT.println("Payload : "+payload);
+    //Rester Last Slave Command flags to false
+    for(int i=0;i<10;i++){
+        master.slave.relay[i].lastmqttcommand = false;
+    }
+    for(int i=0;i<10;i++){
+        master.slave.fan[i].lastmqttcommand = false;
+    }
+    for(int i=0;i<10;i++){
+        master.slave.sensor[i].lastmqttcommand = false;
+    }
+    if(topic.charAt(topic.length()) != '/'){
+        topic = topic + "/";
+    }
+    //Switching the lastmqttcommands to their default value
+    //remove the chipid
+    if(topic.length() > 0){
+        String chipId = topic.substring(0,topic.indexOf('/',0));
+        topic.remove(0,topic.indexOf('/',0)+1);
+        if(topic.length() > 0){
+            String sub1 = topic.substring(0,topic.indexOf('/',0));
+            topic.remove(0,topic.indexOf('/',0)+1);
+            if(sub1 == "relay"){
+                if(topic.length() > 0){
+                    String sub1 = topic.substring(0,topic.indexOf('/',0));
+                    topic.remove(0,topic.indexOf('/',0)+1);
+                    if(sub1 == "1"){
+                        if(topic.length() > 0){
+                            String sub1 = topic.substring(0,topic.indexOf('/',0));
+                            topic.remove(0,topic.indexOf('/',0)+1);
+                            if(sub1 == "state"){
+                                master.slave.relay[0].current_state = bool(payload.toInt());
+                                master.slave.relay[0].lastmqttcommand = true;
+                            }
+                        }
+                    }
+                    else if(sub1 == "2"){
+                        if(topic.length() > 0){
+                            String sub1 = topic.substring(0,topic.indexOf('/',0));
+                            topic.remove(0,topic.indexOf('/',0)+1);
+                            if(sub1 == "state"){
+                                master.slave.relay[1].current_state = bool(payload.toInt());
+                                master.slave.relay[1].lastmqttcommand = true;
+                            }
+                        }
+                    }
+                    else if(sub1 == "3"){
+                        if(topic.length() > 0){
+                            String sub1 = topic.substring(0,topic.indexOf('/',0));
+                            topic.remove(0,topic.indexOf('/',0)+1);
+                            if(sub1 == "state"){
+                                master.slave.relay[2].current_state = bool(payload.toInt());
+                                master.slave.relay[2].lastmqttcommand = true;
+                            }
+                        }
+                    }
+                    else if(sub1 == "4"){
+                        if(topic.length() > 0){
+                            String sub1 = topic.substring(0,topic.indexOf('/',0));
+                            topic.remove(0,topic.indexOf('/',0)+1);
+                            if(sub1 == "state"){
+                                master.slave.relay[3].current_state = bool(payload.toInt());
+                                master.slave.relay[3].lastmqttcommand = true;
+                            }
+                        }
+                    }
+                    else if(sub1 == "all"){
+                        if(topic.length() > 0){
+                            String sub1 = topic.substring(0,topic.indexOf('/',0));
+                            topic.remove(0,topic.indexOf('/',0)+1);
+                            if(sub1 == "state"){
+                                for(int i=0;i<master.slave.RELAY_NUMBER;i++){
+                                    master.slave.relay[i].current_state = bool(payload.toInt());
+                                    master.slave.relay[i].lastmqttcommand = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    /*
+    while(topic.length() > 0){
+      String structure = topic.substring(0,topic.indexOf('/',0));
+      Serial.println(structure);
+      topic.remove(0,topic.indexOf('/',0)+1);
+    }*/
+}
+
 void HomeHub::publish_mqtt(String message)
 {
     mqttclient.publish(Device_Id_In_Char_As_Publish_Topic, message.c_str(), true);
 }
 
-void HomeHub::publish_mqtt(const char* topic, String message)
+void HomeHub::publish_mqtt(String topic, String message)
 {
-    mqttclient.publish(topic, message.c_str());
+    
+    mqttclient.publish(topic.c_str(), message.c_str());
 }
 
+void HomeHub::mqtt_output_handler(){
+    if(master.slave.change == true){
+        String topic = "";
+        String payload = "";
+        if(master.slave.all_relay_change == true){
+            for(int i=0;i<master.slave.RELAY_NUMBER;i++){
+                if(master.slave.relay[i].change == true){
+                    topic = Device_Id_As_Publish_Topic + "relay/" + String(i+1) + "/state/";
+                    payload = String(master.slave.relay[i].current_state);
+                    publish_mqtt(topic,payload);
+                    topic = Device_Id_As_Publish_Topic + "relay/" + String(i+1) + "/value/";
+                    payload = String(master.slave.relay[i].current_value);
+                    publish_mqtt(topic,payload);
+                }
+            }
+        }
+        if(master.slave.all_fan_change == true){
+          for(int i=0;i<master.slave.FAN_NUMBER;i++){
+              if(master.slave.fan[i].change == true){
+                  topic = Device_Id_As_Publish_Topic + "fan/" + String(i+1) + "/state/";
+                  payload = String(master.slave.fan[i].current_state);
+                  publish_mqtt(topic,payload);
+                  topic = Device_Id_As_Publish_Topic + "fan/" + String(i+1) + "/value/";
+                  payload = String(master.slave.fan[i].current_value);
+                  publish_mqtt(topic,payload);
+              }
+          }
+      }
+    if(master.slave.all_sensor_change == true){
+        for(int i=0;i<master.slave.SENSOR_NUMBER;i++){
+            if(master.slave.sensor[i].change == true){
+                topic = Device_Id_As_Publish_Topic + "sensor/" + String(i+1) + "/" +"type/";
+                payload = master.slave.sensor[i].type;
+                publish_mqtt(topic,payload);
+                topic = Device_Id_As_Publish_Topic + "sensor/" + String(i+1) + "/" +"value/";
+                payload = String(master.slave.sensor[i].current_value);
+                publish_mqtt(topic,payload);
+            }
+        }
+    }
+    }
+}
 
 void HomeHub::timesensor_handler(){
   if(_timesensor_set == 0){
@@ -575,20 +972,20 @@ void HomeHub::update_device()
     t_httpUpdate_return ret = ESPhttpUpdate.update(_Client, _host_update, _firmware_version);
     switch (ret) {
       case HTTP_UPDATE_FAILED:
-            HomeHub_DEBUG_PORT.println("HTTP_UPDATE_FAILD Error (%d): %s\n");//,ESPhttpUpdate.getLastError(),ESPhttpUpdate.getLastErrorString().c_str());
+            //HomeHub_DEBUG_PORT.println("HTTP_UPDATE_FAILD Error (%d): %s\n");//,ESPhttpUpdate.getLastError(),ESPhttpUpdate.getLastErrorString().c_str());
         break;
 
       case HTTP_UPDATE_NO_UPDATES:
-        HomeHub_DEBUG_PORT.println("HTTP_UPDATE_NO_UPDATES");
+        //HomeHub_DEBUG_PORT.println("HTTP_UPDATE_NO_UPDATES");
         break;
 
       case HTTP_UPDATE_OK:
-        HomeHub_DEBUG_PORT.println("HTTP_UPDATE_OK");
+        //HomeHub_DEBUG_PORT.println("HTTP_UPDATE_OK");
         break;
     }
     }
     else{
-        HomeHub_DEBUG_PRINT("Device is Offline, cant update.");
+        //HomeHub_DEBUG_PRINT("Device is Offline, cant update.");
     }
 }
 

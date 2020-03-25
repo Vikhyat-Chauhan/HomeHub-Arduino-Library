@@ -13,10 +13,10 @@
 #define HomeHub_DEBUG
 
 #define HomeHub_DEBUG_PORT Serial
-#define HomeHub_DEBUG_PORT_BAUD 9600
+#define HomeHub_DEBUG_PORT_BAUD 115200
 
 #define HomeHub_SLAVE_DATA_PORT Serial
-#define HomeHub_SLAVE_DATA_PORT_BAUD 9600
+#define HomeHub_SLAVE_DATA_PORT_BAUD 115200
 
 #include "Arduino.h"
 #include <ArduinoJson.h>
@@ -41,7 +41,7 @@
 #endif
 
 #ifdef HomeHub_DEBUG
-#define HomeHub_DEBUG_PRINT(...) do {HomeHub_DEBUG_PORT.print("[HomeHub] : "); HomeHub_DEBUG_PORT.printf( __VA_ARGS__ );HomeHub_DEBUG_PORT.println("");} while (0)
+#define HomeHub_DEBUG_PRINT(...) do {} while (0)
 #else
 #define HomeHub_DEBUG_PRINT(...)
 #endif
@@ -50,21 +50,32 @@
 #define RELAY_MAX_NUMBER 10
 
 typedef struct{
-    bool state;
-    unsigned long value;
+    bool current_state;
+    bool previous_state;
+    unsigned int current_value;
+    unsigned int previous_value;
     bool change = false;
+    bool lastmqttcommand = false;
+    bool lastslavecommand = false;
 }RELAY;
 
 typedef struct{
-    bool state;
-    unsigned long value;
+    bool current_state;
+    bool previous_state;
+    unsigned int current_value;
+    unsigned int previous_value;
     bool change = false;
+    bool lastmqttcommand = false;
+    bool lastslavecommand = false;
 }FAN;
 
 typedef struct{
     const char* type;
-    unsigned long value;
+    unsigned int current_value;
+    unsigned int previous_value;
     bool change = false;
+    bool lastmqttcommand = false;
+    bool lastslavecommand = false;
 }SENSOR;
 
 typedef struct{
@@ -72,11 +83,41 @@ typedef struct{
     unsigned int RELAY_NUMBER;
     unsigned int FAN_NUMBER;
     unsigned int SENSOR_NUMBER;
+    bool all_relay_change = false;
+    bool all_fan_change = false;
+    bool all_sensor_change = false;
+    bool all_relay_lastslavecommand = false;
+    bool all_fan_lastslavecommand = false;
+    bool all_sensor_lastslavecommand = false;
+    bool all_relay_lastmqttcommand = false;
+    bool all_fan_lastmqttcommand = false;
+    bool all_sensor_lastmqttcommand = false;
     RELAY relay[10];
     FAN fan[10];
     SENSOR sensor[10];
+    bool change = false;
 }SLAVE;
 
+typedef struct{
+    //async Task control variables
+    bool wifi_setup_webhandler = false;
+    bool mqtt_webhandler = false;
+    bool check_update = false;
+    bool slave_handshake= false;
+    bool slave_sync = false;
+    bool boot_check_update = true;
+    bool saved_wifi_present = false;
+    bool receiving_json = false;
+    bool received_json = false;
+    bool initiate_ap = true;
+}FLAG;
+
+typedef struct{
+    const char* NAME;
+    bool change = false;
+    FLAG flag;
+    SLAVE slave;
+}MASTER;
 
 //const char HTTP_EN[] PROGMEM = "</div></body></html>";
 
@@ -105,7 +146,7 @@ class HomeHub{
         void mqttcallback(char* topic, byte* payload, unsigned int length);
         HomeHub& setCallback(MQTT_CALLBACK_SIGN);
         void publish_mqtt(String message);
-        void publish_mqtt(const char* topic, String message);
+        void publish_mqtt(String topic, String message);
         void update_device();
 
 	private:
@@ -115,8 +156,8 @@ class HomeHub{
         WiFiServer* server;
         Ticker* ticker;
     
-        //Slave struct variable
-        SLAVE slave;
+        //Master struct variable
+        MASTER master;
     
 		//Wifi Variables
         String _ssid_string = "TNM" + String(ESP.getChipId());
@@ -124,14 +165,14 @@ class HomeHub{
         String _esid = "";
         String _epass = "";
         int _wifi_data_memspace = 0;
-        bool _saved_wifi_present_flag = false;
+        
     
         //Mqtt Variables
         String error = "000";
         String LastCommand = "";
-        String Device_Id_As_Subscription_Topic = (String)ESP.getChipId()+"ESP";
-        String Device_Id_As_Publish_Topic = (String)ESP.getChipId()+"/{2S}";
-        char Device_Id_In_Char_As_Subscription_Topic[12];
+        String Device_Id_As_Subscription_Topic = (String)ESP.getChipId()+"ESP/#";
+        String Device_Id_As_Publish_Topic = (String)ESP.getChipId()+"/";
+        char Device_Id_In_Char_As_Subscription_Topic[20];
         char Device_Id_In_Char_As_Publish_Topic[22];
         unsigned long previous_millis = 0;
         const char* mqtt_server = "m12.cloudmqtt.com";
@@ -144,14 +185,10 @@ class HomeHub{
         //Device Update
         const String _host_update = "http://us-central1-sense-smart.cloudfunctions.net/update";
         const String _firmware_version = "3";
-        bool _boot_check_update_flag = true;
         
     
         //Slave Handling Variables
         unsigned int _SLAVE_DATA_PORT_counter = 0;
-        bool _receiving_json = false;
-        bool _received_json = false;
-        bool _initiate_AP = false;
         String _SLAVE_DATA_PORT_command = "";
         String _slave_command_buffer = "";
     
@@ -164,20 +201,22 @@ class HomeHub{
         boolean _timesensor_set = 1;
         byte _timesensor_memspace[3] = {NULL,260,261};
     
-        //async Task control variables
-        bool _wifi_setup_webhandler_flag = false;
-        bool _mqtt_webhandler_flag = false;
-        bool _check_update_flag = false;
-        bool _slave_handshake_flag = false;
+        
     
         //millis variables for async tasks
         unsigned long _slave_handshake_millis = 0.0;
 
-		//Private Functions 
-		void slave_handler();
+		//Private Functions
+        void slave_input_handler();
+        void slave_output_handler();
         void slave_sync_handler();
         bool slave_handshake_handler();
-        void slave_command_processor(const char* command);
+		void salve_serial_json_input_capture();
+        void slave_receive_command(const char* command);
+        String slave_push_command();
+        bool mqtt_input_handler(String topic,String payload);
+        void mqtt_output_handler();
+        void device_handler();
         void start_server();
         bool stop_server();
         bool initiate_ap();

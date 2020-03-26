@@ -5,6 +5,8 @@
  * Revision #10 - See readMe
  */
 
+ //HomeHub_DEBUG_PORT.print("[HomeHub] : "); HomeHub_DEBUG_PORT.printf( __VA_ARGS__ );HomeHub_DEBUG_PORT.println("");
+
 #ifndef HomeHub_h
 #define HomeHub_h
 

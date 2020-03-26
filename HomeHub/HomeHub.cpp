@@ -24,7 +24,7 @@ HomeHub::HomeHub(){
     mqttclient.setServer(mqtt_server, mqtt_port);
     mqttclient.setCallback([this] (char* topic, byte* payload, unsigned int length) { this->mqttcallback(topic, payload, length); });
     //Initiate Wire begin
-	//Wire.begin();
+	Wire.begin();
     //Initilize new Ticker function to run serial slave handler
     ticker = new Ticker();
     ticker->attach_ms(1, std::bind(&HomeHub::salve_serial_json_input_capture, this));
@@ -37,16 +37,17 @@ HomeHub::HomeHub(){
 void HomeHub::asynctasks(){
     //timesensor_handler();
     slave_input_handler();
-    //Handling Wifi Setup client and Page requests in each loop
+    //Handling Wifi Setup client and Page requests in each loop/*
     if(master.flag.wifi_setup_webhandler == true){
         _wifi_data = scan_networks();
         wifi_setup_webhandler();
         if(master.flag.saved_wifi_present == true){
             end_wifi_setup();
+            master.flag.saved_wifi_present = false;
         }
     }
     //Handling Mqtt looping and wifi connection fallbacks in each loop
-    if(master.flag.mqtt_webhandler == true){
+    else if(master.flag.mqtt_webhandler == true){
         if(WiFi.status() != 3){
             if((millis() - previous_millis) > 10000){
                 previous_millis = millis();
@@ -271,10 +272,11 @@ void HomeHub::slave_sync_handler(){
         }
         index = 0;
         for (JsonObject repo : sensors){
+            /* No need to send the device type detials again and again after Handhshake
             if(repo.containsKey("TYPE")) { //Check if Key is actually present in it, or it will insert default values in places of int
                 master.slave.sensor[index].type = repo["TYPE"].as<char *>();
                 master.slave.sensor[index].lastslavecommand = true;
-            }
+            }*/
             if(repo.containsKey("VALUE")) {
                 master.slave.sensor[index].current_value = repo["VALUE"].as<int>();
                 master.slave.sensor[index].lastslavecommand = true;
@@ -307,6 +309,12 @@ void HomeHub::slave_receive_command(const char* command){
     else if((strncmp(Command,"UPDATE_DEVICE",20) == 0)){
         HomeHub_DEBUG_PRINT("Connecting to presaved Wifi");
         update_device();
+    }
+    else if((strncmp(Command,"ALL_LONGPRESS",20) == 0)){
+        HomeHub_DEBUG_PRINT("Long Press command received from Slave");
+        _esid = "";
+        _epass = "";
+        initiate_wifi_setup();
     }
     else{
         HomeHub_DEBUG_PRINT("Unsupported Command");
@@ -527,13 +535,13 @@ bool HomeHub::retrieve_wifi_data(){
     {
       _esid += char(rom_read(_wifi_data_memspace+i)); //_esid += char(EEPROM.read(i));
     }
-  HomeHub_DEBUG_PRINT("SSID:");HomeHub_DEBUG_PORT.println(_esid);
+  //HomeHub_DEBUG_PRINT("SSID:");HomeHub_DEBUG_PORT.println(_esid);
   _epass = "";
   for(int i = 32;i < 96;++i)
     {
       _epass += char(rom_read(_wifi_data_memspace+i)); //_epass += char(EEPROM.read(i));
     }
-  HomeHub_DEBUG_PRINT("PASS:");HomeHub_DEBUG_PORT.println(_epass);
+ // HomeHub_DEBUG_PRINT("PASS:");HomeHub_DEBUG_PORT.println(_epass);
   if(_esid.length() > 1){
     return true;
   }
@@ -653,18 +661,20 @@ bool HomeHub::end_ap(){
 
 bool HomeHub::saved_wifi_connect(){
   if(retrieve_wifi_data()){
-    WiFi.begin(_esid.c_str(), _epass.c_str());
-    bool connection_result = test_wifi();
-    if(connection_result){
-        if(master.flag.boot_check_update == true){
-            update_device();
+      WiFi.begin(_esid.c_str(), _epass.c_str());
+      bool connection_result = test_wifi();
+      if(connection_result){
+          if(master.flag.boot_check_update == true){
+              update_device();
           }
       }
-    return (connection_result);
+      return (connection_result);
   }
 }
 
 bool HomeHub::manual_wifi_connect(const char* wifi, const char* pass){
+    _esid = wifi;
+    _epass = pass;
     WiFi.begin(wifi, pass);
     bool connection_result = test_wifi();
     if(connection_result){
@@ -676,6 +686,7 @@ bool HomeHub::manual_wifi_connect(const char* wifi, const char* pass){
 }
 
 void HomeHub::save_wifi_data(String ssid, String password){
+    Serial.println("Saved Wifi data");
     for (int i = 0; i < ssid.length(); ++i)
       {
         rom_write(_wifi_data_memspace+i, ssid[i]); //EEPROM.write(i, qsid[i]);
@@ -744,10 +755,6 @@ void HomeHub::mqttcallback(char* topic, byte* payload, unsigned int length) {
   }
   LastCommand = pay;
   mqtt_input_handler(Topic, pay);
-  String command = "changed";
-  char ToBeSent[11];
-  command.toCharArray(ToBeSent,11);
-  publish_mqtt(ToBeSent);
 }
     
 bool HomeHub::mqtt_input_handler(String topic,String payload){
@@ -884,9 +891,9 @@ void HomeHub::mqtt_output_handler(){
     if(master.slave.all_sensor_change == true){
         for(int i=0;i<master.slave.SENSOR_NUMBER;i++){
             if(master.slave.sensor[i].change == true){
-                topic = Device_Id_As_Publish_Topic + "sensor/" + String(i+1) + "/" +"type/";
-                payload = master.slave.sensor[i].type;
-                publish_mqtt(topic,payload);
+                //topic = Device_Id_As_Publish_Topic + "sensor/" + String(i+1) + "/" +"type/";
+                //payload = master.slave.sensor[i].type;
+                //publish_mqtt(topic,payload);
                 topic = Device_Id_As_Publish_Topic + "sensor/" + String(i+1) + "/" +"value/";
                 payload = String(master.slave.sensor[i].current_value);
                 publish_mqtt(topic,payload);
@@ -1044,12 +1051,14 @@ int HomeHub::wifi_setup_webhandler()
         saved_wifi_dump();
         String qsid;
         qsid = req.substring(8,req.indexOf('&'));
-        Serial.println(qsid);
-        Serial.println("");
+        qsid.replace("+"," ");
+        //Serial.println(qsid);
+       // Serial.println("");
         String qpass;
         qpass = req.substring(req.lastIndexOf('=')+1);
-        Serial.println(qpass);
-        Serial.println("");
+          qpass.replace("+"," ");
+        //Serial.println(qpass);
+        //Serial.println("");
         
         HomeHub_DEBUG_PRINT("writing eeprom ssid:");
         save_wifi_data(qsid,qpass);

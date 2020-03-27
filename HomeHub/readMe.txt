@@ -9,3 +9,4 @@ This revision contains:
 -> Complete Wifi Data management code.
 -> Added Json Code capturing from slave serial port.
 -> Added OTA feature including OTA check on boot and OTA on demand from cloud.[MQTT command remaining for OTA on demand]
+-> Added Feature to support switching between usage of EEPROM or External I2C based memory  based on flag.external_memory variable.

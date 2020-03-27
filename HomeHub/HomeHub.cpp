@@ -23,8 +23,8 @@ HomeHub::HomeHub(){
     mqtt_clientname = Device_Id_In_Char_As_Publish_Topic;
     mqttclient.setServer(mqtt_server, mqtt_port);
     mqttclient.setCallback([this] (char* topic, byte* payload, unsigned int length) { this->mqttcallback(topic, payload, length); });
-    //Initiate Wire begin
-	Wire.begin();
+    //Initiate memory system
+    initiate_memory();
     //Initilize new Ticker function to run serial slave handler
     ticker = new Ticker();
     ticker->attach_ms(1, std::bind(&HomeHub::salve_serial_json_input_capture, this));
@@ -495,37 +495,63 @@ void HomeHub::device_handler(){
     }
 }
 
+//Initiate Memory
+void HomeHub::initiate_memory(){
+    if(master.flag.rom_external == false){
+        EEPROM.begin(512);
+    }
+    else{
+        Wire.begin();
+    }
+}
+
 //Custom EEPROM replacement functions
 void HomeHub::rom_write(unsigned int eeaddress, byte data) {
-	int rdata = data;
-	Wire.beginTransmission(ROM_ADDRESS);
-	Wire.write((int)(eeaddress >> 8)); // MSB
-	Wire.write((int)(eeaddress & 0xFF)); // LSB
-	Wire.write(rdata);
-	Wire.endTransmission();
-	delay(20); //Delay introduction solved the data save unreliability
+    if(master.flag.rom_external == false){
+        int rdata = data;
+        EEPROM.write(eeaddress,data);
+        delay(20);
+        EEPROM.commit();
+    }else{
+        int rdata = data;
+        Wire.beginTransmission(ROM_ADDRESS);
+        Wire.write((int)(eeaddress >> 8));      // MSB
+        Wire.write((int)(eeaddress & 0xFF));    // LSB
+        Wire.write(rdata);
+        Wire.endTransmission();
+        delay(20);                              //Delay introduction solved the data save unreliability
+    }
 }
 
 //Custom EEPROM replacement functions
 byte HomeHub::rom_read(unsigned int eeaddress) {
-	byte rdata = 0xFF;
-	Wire.beginTransmission(ROM_ADDRESS);
-	Wire.write((int)(eeaddress >> 8)); // MSB
-	Wire.write((int)(eeaddress & 0xFF)); // LSB
-	Wire.endTransmission();
-	Wire.requestFrom(ROM_ADDRESS, 1);
-	if (Wire.available()) rdata = Wire.read();
-	return rdata;
+    if(master.flag.rom_external == false){
+        byte rdata = EEPROM.read(eeaddress);
+        return rdata;
+    }else{
+        byte rdata = 0xFF;
+        Wire.beginTransmission(ROM_ADDRESS);
+        Wire.write((int)(eeaddress >> 8)); // MSB
+        Wire.write((int)(eeaddress & 0xFF)); // LSB
+        Wire.endTransmission();
+        Wire.requestFrom(ROM_ADDRESS, 1);
+        if (Wire.available()) rdata = Wire.read();
+            return rdata;
+    }
 }
 
 void HomeHub::rom_write_page(unsigned int eeaddresspage, byte* data, byte length ) {
-    Wire.beginTransmission(ROM_ADDRESS);
-    Wire.write((int)(eeaddresspage >> 8)); // MSB
-    Wire.write((int)(eeaddresspage & 0xFF)); // LSB
-    byte c;
-    for ( c = 0; c < length; c++)
-        Wire.write(data[c]);
-    Wire.endTransmission();
+    if(master.flag.rom_external == false){
+        
+    }else{
+        Wire.beginTransmission(ROM_ADDRESS);
+        Wire.write((int)(eeaddresspage >> 8)); // MSB
+        Wire.write((int)(eeaddresspage & 0xFF)); // LSB
+        byte c;
+        for ( c = 0; c < length; c++)
+            Wire.write(data[c]);
+        Wire.endTransmission();
+    }
 }
 
 bool HomeHub::retrieve_wifi_data(){

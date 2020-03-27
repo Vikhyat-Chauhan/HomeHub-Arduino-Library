@@ -29,6 +29,7 @@
 #include <Ticker.h>
 #include <PubSubClient.h>
 #include <ESP8266WiFi.h>
+#include <EEPROM.h>
 #include <pgmspace.h>
 #include <Wire.h>
 #include <DS3231.h>
@@ -50,6 +51,15 @@
 
 #define ROM_ADDRESS 0x57
 #define RELAY_MAX_NUMBER 10
+
+typedef struct{
+    bool type;
+    bool current_state;
+    bool previous_state;
+    bool longpress;
+    bool lastmqttcommand = false;
+    bool lastslavecommand = false;
+}BUTTON;
 
 typedef struct{
     bool current_state;
@@ -82,6 +92,7 @@ typedef struct{
 
 typedef struct{
     const char* NAME;
+    unsigned int BUTTON_NUMBER;
     unsigned int RELAY_NUMBER;
     unsigned int FAN_NUMBER;
     unsigned int SENSOR_NUMBER;
@@ -94,6 +105,7 @@ typedef struct{
     bool all_relay_lastmqttcommand = false;
     bool all_fan_lastmqttcommand = false;
     bool all_sensor_lastmqttcommand = false;
+    BUTTON button[10];
     RELAY relay[10];
     FAN fan[10];
     SENSOR sensor[10];
@@ -112,6 +124,7 @@ typedef struct{
     bool receiving_json = false;
     bool received_json = false;
     bool initiate_ap = true;
+    bool rom_external = false;
 }FLAG;
 
 typedef struct{
@@ -229,6 +242,7 @@ class HomeHub{
         bool test_wifi();
         String scan_networks();
         void timesensor_handler();
+        void initiate_memory();
 };
 
 #endif

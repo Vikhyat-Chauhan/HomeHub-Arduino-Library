@@ -218,6 +218,13 @@ bool HomeHub::slave_handshake_handler(){
         }
         master.flag.received_json = false;
         if(role == "SLAVE"){
+            if(mqttclient.connected()){
+                HomeHub_DEBUG_PRINT("information sent.");
+                publish_mqtt(Device_Id_As_Publish_Topic+"information/name/",String(master.slave.NAME));
+                publish_mqtt(Device_Id_As_Publish_Topic+"information/relay/",String(master.slave.RELAY_NUMBER));
+                publish_mqtt(Device_Id_As_Publish_Topic+"information/fan/",String(master.slave.FAN_NUMBER));
+                publish_mqtt(Device_Id_As_Publish_Topic+"information/sensor/",String(master.slave.SENSOR_NUMBER));
+            }
             return true;
         }
         return false;
@@ -754,10 +761,13 @@ bool HomeHub::end_wifi_setup(){
 }
 
 bool HomeHub::initiate_mqtt(){
-    mqttclient.connect(mqtt_clientname,mqtt_serverid, mqtt_serverpass,"WillTopic",1,1,"willMessage");
+    char topicaschar[25];
+    String topic = Device_Id_As_Publish_Topic+"offline/";
+    topic.toCharArray(topicaschar, 25);
+    mqttclient.connect(mqtt_clientname,mqtt_serverid, mqtt_serverpass,topicaschar,1,1,"1");
     if (mqttclient.connected()) {
         mqttclient.subscribe(Device_Id_In_Char_As_Subscription_Topic);
-        publish_mqtt("[LOGGED IN]");
+        publish_mqtt(topic,"0");
         master.flag.mqtt_webhandler = true;
         return 's';
     } else {
@@ -930,7 +940,7 @@ void HomeHub::publish_mqtt(String message)
 void HomeHub::publish_mqtt(String topic, String message)
 {
     
-    mqttclient.publish(topic.c_str(), message.c_str());
+    mqttclient.publish(topic.c_str(), message.c_str(),true);
 }
 
 void HomeHub::mqtt_output_handler(){
@@ -964,9 +974,9 @@ void HomeHub::mqtt_output_handler(){
     if(master.slave.all_sensor_change == true){
         for(int i=0;i<master.slave.SENSOR_NUMBER;i++){
             if(master.slave.sensor[i].change == true){
-                //topic = Device_Id_As_Publish_Topic + "sensor/" + String(i+1) + "/" +"type/";
-                //payload = master.slave.sensor[i].type;
-                //publish_mqtt(topic,payload);
+                topic = Device_Id_As_Publish_Topic + "sensor/" + String(i+1) + "/" +"type/";
+                payload = String(master.slave.sensor[i].type);
+                publish_mqtt(topic,payload);
                 topic = Device_Id_As_Publish_Topic + "sensor/" + String(i+1) + "/" +"value/";
                 payload = String(master.slave.sensor[i].current_value);
                 publish_mqtt(topic,payload);

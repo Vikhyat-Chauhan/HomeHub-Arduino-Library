@@ -5,7 +5,7 @@
  * Revision #10 - See readMe
  */
 
- //HomeHub_DEBUG_PORT.print("[HomeHub] : "); HomeHub_DEBUG_PORT.printf( __VA_ARGS__ );HomeHub_DEBUG_PORT.println("");
+ //HomeHub_DEBUG_PORT.print("[HomeHub] : "); HomeHub_DEBUG_PORT.print( __VA_ARGS__ );HomeHub_DEBUG_PORT.println("");
 
 #ifndef HomeHub_h
 #define HomeHub_h
@@ -125,6 +125,7 @@ typedef struct{
     bool received_json = false;
     bool initiate_ap = true;
     bool rom_external = false;
+    bool handshake_sent = false;
 }FLAG;
 
 typedef struct{

@@ -36,7 +36,7 @@ HomeHub::HomeHub(){
 
 void HomeHub::asynctasks(){
     //timesensor_handler();
-    slave_input_handler();
+    
     //Handling Wifi Setup client and Page requests in each loop/*
     if(master.flag.wifi_setup_webhandler == true){
         _wifi_data = scan_networks();
@@ -48,7 +48,7 @@ void HomeHub::asynctasks(){
     }
     //Handling Mqtt looping and wifi connection fallbacks in each loop
     else if(master.flag.mqtt_webhandler == true){
-        if(WiFi.status() != 3){
+        if(WiFi.status() != 3){ HomeHub_DEBUG_PRINT("Wifi disconnected");
             if((millis() - previous_millis) > 10000){
                 previous_millis = millis();
                 saved_wifi_connect();
@@ -56,9 +56,11 @@ void HomeHub::asynctasks(){
         }
         else{
             if(!mqttclient.connected()){
+                master.flag.slave_handshake = true; //Reset mqtt flag
                 initiate_mqtt();
             }
             else{
+                slave_input_handler();
                 mqttclient.loop();
             }
         }
@@ -167,16 +169,17 @@ void HomeHub::slave_input_handler(){
     }
 }
 
-bool HomeHub::slave_handshake_handler(){
+bool HomeHub::slave_handshake_handler(){HomeHub_DEBUG_PRINT("In Slave handshake handler");
     if(master.flag.received_json == true){
         DynamicJsonDocument doc(1024);
         deserializeJson(doc, _slave_command_buffer);
         JsonObject obj = doc.as<JsonObject>();
+        master.slave.NAME = doc["NAME"];
         String role = doc["ROLE"];
+        String command = doc["COMMAND"];
         JsonArray relays = doc["DEVICE"]["RELAY"];
         JsonArray fans = doc["DEVICE"]["FAN"];
         JsonArray sensors = doc["DEVICE"]["SENSOR"];
-        master.slave.NAME = doc["NAME"];
         master.slave.RELAY_NUMBER = relays.size();
         master.slave.FAN_NUMBER = fans.size();
         master.slave.SENSOR_NUMBER = sensors.size();
@@ -217,7 +220,7 @@ bool HomeHub::slave_handshake_handler(){
             index++;
         }
         master.flag.received_json = false;
-        if(role == "SLAVE"){
+        if(role == "SLAVE" && command == "HANDSHAKE"){
             if(mqttclient.connected()){
                 HomeHub_DEBUG_PRINT("information sent.");
                 publish_mqtt(Device_Id_As_Publish_Topic+"information/name/",String(master.slave.NAME));
@@ -225,13 +228,14 @@ bool HomeHub::slave_handshake_handler(){
                 publish_mqtt(Device_Id_As_Publish_Topic+"information/fan/",String(master.slave.FAN_NUMBER));
                 publish_mqtt(Device_Id_As_Publish_Topic+"information/sensor/",String(master.slave.SENSOR_NUMBER));
             }
+            HomeHub_DEBUG_PRINT("Handshake Command received.");
             return true;
         }
-        return false;
-        }
-        else{
-            return false;
-        }
+            else{
+                HomeHub_DEBUG_PRINT("Right Handshake Commands Not received.");
+            }
+    }
+    return false;
 }
 
 void HomeHub::slave_sync_handler(){
@@ -761,6 +765,7 @@ bool HomeHub::end_wifi_setup(){
 }
 
 bool HomeHub::initiate_mqtt(){
+    master.flag.mqtt_webhandler = true;
     char topicaschar[25];
     String topic = Device_Id_As_Publish_Topic+"offline/";
     topic.toCharArray(topicaschar, 25);
@@ -768,7 +773,6 @@ bool HomeHub::initiate_mqtt(){
     if (mqttclient.connected()) {
         mqttclient.subscribe(Device_Id_In_Char_As_Subscription_Topic);
         publish_mqtt(topic,"0");
-        master.flag.mqtt_webhandler = true;
         return 's';
     } else {
         HomeHub_DEBUG_PRINT("Failed to connect to mqtt server, rc=");

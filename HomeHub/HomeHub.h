@@ -123,7 +123,7 @@ typedef struct{
     bool saved_wifi_present = false;
     bool receiving_json = false;
     bool received_json = false;
-    bool initiate_ap = true;
+    bool initiate_ap = false;
     bool rom_external = false;
     bool handshake_sent = false;
 }FLAG;
@@ -206,7 +206,7 @@ class HomeHub{
         //Slave Handling Variables
         unsigned int _SLAVE_DATA_PORT_counter = 0;
         String _SLAVE_DATA_PORT_command = "";
-        String _slave_command_buffer = "";
+        String _slave_command_buffer = "";          //Has limited information capacity(Name,role,command,4R2F1S)
     
         //Time Sensor Variables
         int _timesensor_date,_timesensor_month,_timesensor_year,_timesensor_week,_timesensor_hour,_timesensor_minute,_timesensor_second,_timesensor_temp,_timesensor_error_code;

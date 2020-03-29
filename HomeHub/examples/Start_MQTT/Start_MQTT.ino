@@ -15,7 +15,7 @@ HomeHub homehub;
 void setup(){
     homehub.saved_wifi_connect();
     homehub.initiate_mqtt();
-}
+} 
 
 void loop(){
 	// Run the on function

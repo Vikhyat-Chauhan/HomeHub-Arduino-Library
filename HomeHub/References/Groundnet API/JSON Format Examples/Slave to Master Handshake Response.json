@@ -1,8 +1,4 @@
-{"NAME":"4RELAY","ROLE":"SLAVE","DEVICE":{"RELAY":[{"STATE":true,"VALUE":10},{"STATE":true,"VALUE":10},{"STATE":true,"VALUE":10},{"STATE":true,"VALUE":10}],"FAN":[{"STATE":false,"VALUE":10},{"STATE":false,"VALUE":10}],"SENSOR":[{"TYPE":"TEMP","VALUE":27},{"TYPE":null,"VALUE":0}]}}
-
-{"NAME":"4RELAY","ROLE":"SLAVE","DEVICE":{"RELAY":[{"STATE":true,"VALUE":10},{"STATE":true,"VALUE":10},{"STATE":true,"VALUE":10},{"STATE":true,"VALUE":10}],"FAN":[{"STATE":true,"VALUE":10},{"STATE":true,"VALUE":10}],"SENSOR":[{"TYPE":"TEMP","VALUE":27},{"TYPE":"TIME","VALUE":123312}]}}
 
 
-{"NAME":"4RELAY","ROLE":"SLAVE","DEVICE":{"RELAY":[{"STATE":true,"VALUE":0},{"STATE":true,"VALUE":0},{"STATE":true,"VALUE":0},{"STATE":true,"VALUE":0}],"SENSOR":[{"TYPE":"TEMP","VALUE":25}]}}
-
-{"NAME":"4RELAY","ROLE":"SLAVE","DEVICE":{"SENSOR":[{"TYPE":"TEMP","VALUE":25}]}}
+//Latest and the Maximum size of handshake that can be received
+{"NAME":"4RELAY","ROLE":"SLAVE","COMMAND":"HANDSHAKE","DEVICE":{"RELAY":[{"STATE":true,"VALUE":10},{"STATE":true,"VALUE":10},{"STATE":true,"VALUE":10},{"STATE":true,"VALUE":10}],"FAN":[{"STATE":true,"VALUE":10},{"STATE":true,"VALUE":10}],"SENSOR":[{"TYPE":"TEMP","VALUE":27}]}}

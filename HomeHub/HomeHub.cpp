@@ -36,7 +36,6 @@ HomeHub::HomeHub(){
 
 void HomeHub::asynctasks(){
     //timesensor_handler();
-    
     //Handling Wifi Setup client and Page requests in each loop/*
     if(master.flag.wifi_setup_webhandler == true){
         _wifi_data = scan_networks();
@@ -227,6 +226,11 @@ bool HomeHub::slave_handshake_handler(){HomeHub_DEBUG_PRINT("In Slave handshake 
                 publish_mqtt(Device_Id_As_Publish_Topic+"information/relay/",String(master.slave.RELAY_NUMBER));
                 publish_mqtt(Device_Id_As_Publish_Topic+"information/fan/",String(master.slave.FAN_NUMBER));
                 publish_mqtt(Device_Id_As_Publish_Topic+"information/sensor/",String(master.slave.SENSOR_NUMBER));
+                for(int i=0;i<master.slave.SENSOR_NUMBER;i++){
+                    String topic = Device_Id_As_Publish_Topic + "sensor/" + String(i+1) + "/" +"type/";
+                    String payload = String(master.slave.sensor[i].type);
+                    publish_mqtt(topic,payload);
+                }
             }
             HomeHub_DEBUG_PRINT("Handshake Command received.");
             return true;
@@ -781,6 +785,10 @@ bool HomeHub::initiate_mqtt(){
     }
 }
 
+void HomeHub::end_mqtt(){
+  mqttclient.disconnect();
+}
+
 HomeHub& HomeHub::setCallback(MQTT_CALLBACK_SIGN)
 {
     this->mqttCallback = mqttCallback;
@@ -829,16 +837,13 @@ bool HomeHub::mqtt_input_handler(String topic,String payload){
                                     if(topic.length() > 0){
                                         String sub1 = topic.substring(0,topic.indexOf('/',0));
                                         topic.remove(0,topic.indexOf('/',0)+1);
-                                        if(sub1 == "state"){
-                                            for(int i=0;i<master.slave.RELAY_NUMBER;i++){
-                                                master.slave.relay[i].current_state = bool(payload.toInt());
-                                                master.slave.relay[i].lastmqttcommand = true;
-                                            }
-                                        }
                                         if(sub1 == "value"){
-                                            for(int i=0;i<master.slave.RELAY_NUMBER;i++){
-                                                master.slave.relay[i].current_value = bool(payload.toInt());
-                                                master.slave.relay[i].lastmqttcommand = true;
+                                            int value = payload.toInt();
+                                            if((value == 0) || (value ==1)){
+                                                for(int i=0;i<master.slave.RELAY_NUMBER;i++){
+                                                    master.slave.relay[i].current_state = bool(value);
+                                                    master.slave.relay[i].lastmqttcommand = true;
+                                                }
                                             }
                                         }
                                     }
@@ -849,13 +854,12 @@ bool HomeHub::mqtt_input_handler(String topic,String payload){
                                 if(topic.length() > 0){
                                     String sub1 = topic.substring(0,topic.indexOf('/',0));
                                     topic.remove(0,topic.indexOf('/',0)+1);
-                                    if(sub1 == "state"){
-                                        master.slave.relay[i].current_state = bool(payload.toInt());
-                                        master.slave.relay[i].lastmqttcommand = true;
-                                    }
-                                    else if(sub1 == "value"){
-                                        master.slave.relay[i].current_value = bool(payload.toInt());
-                                        master.slave.relay[i].lastmqttcommand = true;
+                                    if(sub1 == "value"){
+                                        int value = payload.toInt();
+                                        if((value == 0) || (value == 1)){
+                                            master.slave.relay[i].current_state = bool(value);
+                                            master.slave.relay[i].lastmqttcommand = true;
+                                        }
                                     }
                                 }
                             }
@@ -871,16 +875,20 @@ bool HomeHub::mqtt_input_handler(String topic,String payload){
                                     if(topic.length() > 0){
                                         String sub1 = topic.substring(0,topic.indexOf('/',0));
                                         topic.remove(0,topic.indexOf('/',0)+1);
-                                        if(sub1 == "state"){
-                                            for(int i=0;i<master.slave.FAN_NUMBER;i++){
-                                                master.slave.fan[i].current_state = bool(payload.toInt());
-                                                master.slave.fan[i].lastmqttcommand = true;
+                                        if(sub1 == "value"){
+                                            int value = payload.toInt();
+                                            if(value == 0){
+                                                for(int i=0;i<master.slave.FAN_NUMBER;i++){
+                                                    master.slave.fan[i].current_state = false;
+                                                    master.slave.fan[i].lastmqttcommand = true;
+                                                }
                                             }
-                                        }
-                                        else if(sub1 == "value"){
-                                            for(int i=0;i<master.slave.FAN_NUMBER;i++){
-                                                master.slave.fan[i].current_value = bool(payload.toInt());
-                                                master.slave.fan[i].lastmqttcommand = true;
+                                            else if((value > 0) && (value<11)){
+                                                for(int i=0;i<master.slave.FAN_NUMBER;i++){
+                                                    master.slave.fan[i].current_state = true;
+                                                    master.slave.fan[i].current_value = value;
+                                                    master.slave.fan[i].lastmqttcommand = true;
+                                                }
                                             }
                                         }
                                     }
@@ -891,13 +899,15 @@ bool HomeHub::mqtt_input_handler(String topic,String payload){
                                 if(topic.length() > 0){
                                     String sub1 = topic.substring(0,topic.indexOf('/',0));
                                     topic.remove(0,topic.indexOf('/',0)+1);
-                                    if(sub1 == "state"){
-                                        master.slave.fan[i].current_state = bool(payload.toInt());
-                                        master.slave.fan[i].lastmqttcommand = true;
+                                    int value = payload.toInt();
+                                    if(value == 0){
+                                            master.slave.fan[i].current_state = false;
+                                            master.slave.fan[i].lastmqttcommand = true;
                                     }
-                                    else if(sub1 == "value"){
-                                        master.slave.fan[i].current_value = bool(payload.toInt());
-                                        master.slave.fan[i].lastmqttcommand = true;
+                                    else if((value > 0) && (value<11)){
+                                            master.slave.fan[i].current_state = true;
+                                            master.slave.fan[i].current_value = value;
+                                            master.slave.fan[i].lastmqttcommand = true;
                                     }
                                 }
                             }
@@ -954,11 +964,8 @@ void HomeHub::mqtt_output_handler(){
         if(master.slave.all_relay_change == true){
             for(int i=0;i<master.slave.RELAY_NUMBER;i++){
                 if(master.slave.relay[i].change == true){
-                    topic = Device_Id_As_Publish_Topic + "relay/" + String(i+1) + "/state/";
-                    payload = String(master.slave.relay[i].current_state);
-                    publish_mqtt(topic,payload);
                     topic = Device_Id_As_Publish_Topic + "relay/" + String(i+1) + "/value/";
-                    payload = String(master.slave.relay[i].current_value);
+                    payload = String(master.slave.relay[i].current_state);
                     publish_mqtt(topic,payload);
                 }
             }
@@ -966,11 +973,13 @@ void HomeHub::mqtt_output_handler(){
         if(master.slave.all_fan_change == true){
           for(int i=0;i<master.slave.FAN_NUMBER;i++){
               if(master.slave.fan[i].change == true){
-                  topic = Device_Id_As_Publish_Topic + "fan/" + String(i+1) + "/state/";
-                  payload = String(master.slave.fan[i].current_state);
-                  publish_mqtt(topic,payload);
                   topic = Device_Id_As_Publish_Topic + "fan/" + String(i+1) + "/value/";
-                  payload = String(master.slave.fan[i].current_value);
+                  if(master.slave.fan[i].current_state == false){ // Fan is off by state sending a 0 value instead saved fan value
+                      payload = "0";
+                  }
+                  else{ // value of fan state is true then send the current value
+                      payload = String(master.slave.fan[i].current_value);
+                  }
                   publish_mqtt(topic,payload);
               }
           }
@@ -978,9 +987,6 @@ void HomeHub::mqtt_output_handler(){
     if(master.slave.all_sensor_change == true){
         for(int i=0;i<master.slave.SENSOR_NUMBER;i++){
             if(master.slave.sensor[i].change == true){
-                topic = Device_Id_As_Publish_Topic + "sensor/" + String(i+1) + "/" +"type/";
-                payload = String(master.slave.sensor[i].type);
-                publish_mqtt(topic,payload);
                 topic = Device_Id_As_Publish_Topic + "sensor/" + String(i+1) + "/" +"value/";
                 payload = String(master.slave.sensor[i].current_value);
                 publish_mqtt(topic,payload);
@@ -1062,6 +1068,7 @@ void HomeHub::timesensor_handler(){
 
 void HomeHub::update_device()
 {
+  end_mqtt();
     if (WiFi.status() == WL_CONNECTED){
     t_httpUpdate_return ret = ESPhttpUpdate.update(_Client, _host_update, _firmware_version);
     switch (ret) {
@@ -1080,6 +1087,31 @@ void HomeHub::update_device()
     else{
         HomeHub_DEBUG_PRINT("Device is Offline, cant update.");
     }
+  initiate_mqtt();
+}
+
+void HomeHub::update_device(String host_update)
+{
+  end_mqtt();
+    if (WiFi.status() == WL_CONNECTED){
+    t_httpUpdate_return ret = ESPhttpUpdate.update(_Client, host_update);
+    switch (ret) {
+      case HTTP_UPDATE_FAILED:
+            HomeHub_DEBUG_PRINT("HTTP_UPDATE_FAILD Error" + String(ESPhttpUpdate.getLastErrorString()));
+        break;
+      case HTTP_UPDATE_NO_UPDATES:
+        HomeHub_DEBUG_PRINT("HTTP_UPDATE_NO_UPDATES");
+        break;
+
+      case HTTP_UPDATE_OK:
+        HomeHub_DEBUG_PRINT("HTTP_UPDATE_OK");
+        break;
+    }
+    }
+    else{
+        HomeHub_DEBUG_PRINT("Device is Offline, cant update.");
+    }
+  initiate_mqtt();
 }
 
 int HomeHub::wifi_setup_webhandler()

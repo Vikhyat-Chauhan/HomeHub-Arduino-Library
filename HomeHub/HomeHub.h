@@ -5,7 +5,7 @@
  * Revision #10 - See readMe
  */
 
- //HomeHub_DEBUG_PORT.print("[HomeHub] : "); HomeHub_DEBUG_PORT.print( __VA_ARGS__ );HomeHub_DEBUG_PORT.println("");
+ //
 
 #ifndef HomeHub_h
 #define HomeHub_h
@@ -44,7 +44,7 @@
 #endif
 
 #ifdef HomeHub_DEBUG
-#define HomeHub_DEBUG_PRINT(...) do {} while (0)
+#define HomeHub_DEBUG_PRINT(...) do {HomeHub_DEBUG_PORT.print("[HomeHub] : "); HomeHub_DEBUG_PORT.print( __VA_ARGS__ );HomeHub_DEBUG_PORT.println("");} while (0)
 #else
 #define HomeHub_DEBUG_PRINT(...)
 #endif
@@ -159,11 +159,13 @@ class HomeHub{
         void save_wifi_data(String ssid,String password);
         //Mqtt Functions
         bool initiate_mqtt();
+        void end_mqtt();
         void mqttcallback(char* topic, byte* payload, unsigned int length);
         HomeHub& setCallback(MQTT_CALLBACK_SIGN);
         void publish_mqtt(String message);
         void publish_mqtt(String topic, String message);
         void update_device();
+        void update_device(String host_update);
 
 	private:
         //std::unique_ptr<MDNSResponder> mdns;
